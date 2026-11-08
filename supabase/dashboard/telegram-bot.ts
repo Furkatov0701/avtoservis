@@ -193,7 +193,19 @@ async function databaseRequest(config, path, options, fetcher) {
   try { return JSON.parse(body); } catch { throw { status: 502, code: 'database_invalid_response' }; }
 }
 
-async function miniAppSession(config, body, fetcher) {
+function firstRow(value) {
+  return Array.isArray(value) ? value[0] || null : null;
+}
+
+function cleanText(value, maximum) {
+  return typeof value === 'string' ? value.trim().slice(0, maximum) : '';
+}
+
+function validUuid(value) {
+  return typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
+async function miniAppActor(config, body, fetcher) {
   const telegram = await verifyMiniAppInitData(body?.initData, config.token);
   const profile = {
     telegram_user_id: telegram.telegramUserId,
@@ -211,8 +223,13 @@ async function miniAppSession(config, body, fetcher) {
   const staff = await databaseRequest(config, `/rest/v1/service_staff?telegram_user_id=eq.${encodeURIComponent(String(telegram.telegramUserId))}&select=role&limit=1`, {
     method: 'GET', headers: { accept: 'application/json' },
   }, fetcher);
-  const customer = Array.isArray(customers) ? customers[0] : null;
-  const role = Array.isArray(staff) && staff[0]?.role === 'admin' ? 'admin' : 'user';
+  const customer = firstRow(customers);
+  const role = firstRow(staff)?.role === 'admin' ? 'admin' : 'user';
+  return { telegram, customer, role };
+}
+
+async function miniAppSession(config, body, fetcher) {
+  const { telegram, customer, role } = await miniAppActor(config, body, fetcher);
   return {
     ok: true,
     account: customer ? 'ready' : 'unlinked',
@@ -220,6 +237,43 @@ async function miniAppSession(config, body, fetcher) {
     profile: { firstName: telegram.firstName, lastName: telegram.lastName, username: telegram.username },
     customer: customer ? { id: customer.id, firstName: customer.first_name, lastName: customer.last_name } : null,
   };
+}
+
+async function requireAdmin(config, body, fetcher) {
+  const actor = await miniAppActor(config, body, fetcher);
+  if (actor.role !== 'admin') throw { status: 403, code: 'admin_required' };
+  return actor;
+}
+
+async function adminDashboard(config, body, fetcher) {
+  await requireAdmin(config, body, fetcher);
+  const customers = await databaseRequest(config, '/rest/v1/customers?select=id,first_name,last_name,phone,created_at&order=created_at.desc&limit=100', {
+    method: 'GET', headers: { accept: 'application/json' },
+  }, fetcher);
+  return { ok: true, customers: Array.isArray(customers) ? customers : [] };
+}
+
+async function adminCreateCustomer(config, body, fetcher) {
+  await requireAdmin(config, body, fetcher);
+  const firstName = cleanText(body?.customer?.firstName, 80);
+  const lastName = cleanText(body?.customer?.lastName, 80);
+  const phone = cleanText(body?.customer?.phone, 32);
+  if (!firstName) throw { status: 400, code: 'invalid_customer' };
+  const rows = await databaseRequest(config, '/rest/v1/customers', {
+    method: 'POST', headers: { 'content-type': 'application/json', prefer: 'return=representation' },
+    body: JSON.stringify([{ first_name: firstName, last_name: lastName, phone }]),
+  }, fetcher);
+  const customer = firstRow(rows);
+  if (!customer) throw { status: 502, code: 'database_invalid_response' };
+  return { ok: true, customer: { id: customer.id, firstName: customer.first_name, lastName: customer.last_name, phone: customer.phone } };
+}
+
+async function miniAppAction(config, body, fetcher) {
+  if (!body || typeof body.action !== 'string') throw { status: 400, code: 'invalid_action' };
+  if (body.action === 'miniapp-session') return miniAppSession(config, body, fetcher);
+  if (body.action === 'admin-dashboard') return adminDashboard(config, body, fetcher);
+  if (body.action === 'admin-create-customer') return adminCreateCustomer(config, body, fetcher);
+  throw { status: 400, code: 'invalid_action' };
 }
 
 export function createEdgeHandler({ env, fetcher = fetch }) {
@@ -249,13 +303,13 @@ export function createEdgeHandler({ env, fetcher = fetch }) {
         return send(200, await setup(config, await readJson(request, 4096), fetcher));
       }
       const body = await readJson(request, 65536);
-      if (body?.action === 'miniapp-session') return send(200, await miniAppSession(config, body, fetcher));
+      if (['miniapp-session', 'admin-dashboard', 'admin-create-customer'].includes(body?.action)) return send(200, await miniAppAction(config, body, fetcher));
       const webhookSecret = await deriveWebhookSecret(config.token, config.webhookUrl);
       if (!(await matchesSecret(request.headers.get('x-telegram-bot-api-secret-token'), webhookSecret))) return send(401, { error: 'unauthorized' });
       if (!Number.isSafeInteger(body?.update_id) || body.update_id < 0) return send(400, { error: 'invalid_update' });
       return send(200, replyForUpdate(body, config) || { ok: true });
     } catch (error) {
-      const known = ['json_required', 'body_too_large', 'invalid_json', 'invalid_action', 'telegram_connection_failed', 'telegram_invalid_response', 'telegram_request_failed', 'bot_username_mismatch', 'invalid_init_data', 'telegram_identity_invalid', 'telegram_identity_expired', 'invalid_telegram_user', 'server_database_required', 'database_connection_failed', 'database_request_failed', 'database_invalid_response'];
+      const known = ['json_required', 'body_too_large', 'invalid_json', 'invalid_action', 'invalid_customer', 'admin_required', 'telegram_connection_failed', 'telegram_invalid_response', 'telegram_request_failed', 'bot_username_mismatch', 'invalid_init_data', 'telegram_identity_invalid', 'telegram_identity_expired', 'invalid_telegram_user', 'server_database_required', 'database_connection_failed', 'database_request_failed', 'database_invalid_response'];
       if (!known.includes(error?.code)) return send(500, { error: 'internal_error' });
       return send(error.status, { error: error.code, ...(error.stage ? { stage: error.stage } : {}) });
     }

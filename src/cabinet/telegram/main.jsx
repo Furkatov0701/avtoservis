@@ -2,9 +2,9 @@ import React, { useContext, useEffect, useState, createContext } from 'react';
 import { createRoot } from 'react-dom/client';
 import { createMemoryRouter, Link, Outlet, RouterProvider, useLocation, useNavigate } from 'react-router-dom';
 import { Icon } from '../Icon';
-import { Button, StateCard } from '../Primitives';
+import { Button, Field, StateCard } from '../Primitives';
 import { botLink, loadTelegramSdk, mountTelegramViewport } from './sdk';
-import { loadTelegramSession } from './api';
+import { loadTelegramSession, telegramRequest } from './api';
 import './telegram.css';
 
 const TelegramContext = createContext(null);
@@ -60,8 +60,39 @@ function Welcome() {
   }, [status, app, attempt]);
   const name = session.data?.profile?.firstName || 'siz';
   return <section className="telegram-welcome"><span className="telegram-emblem"><Icon name="car" size={76} /></span><h1>Avto kabinetingiz</h1><p>Avtomobillaringiz va xizmatlar tarixi — Telegram ichida.</p>
-    {status === 'outside' ? <StateCard title="Telegram orqali oching" action={configuredBotLink ? <a className="button-primary" href={configuredBotLink} rel="noopener noreferrer">Telegram botni ochish</a> : null}>Servis botidagi «Kabinetni ochish» tugmasidan foydalaning.</StateCard> : session.state === 'loading' || session.state === 'idle' ? <StateCard kind="loading" title="Profil tekshirilmoqda…">Telegram hisobingiz xavfsiz tekshirilmoqda.</StateCard> : session.state === 'error' ? <StateCard kind="error" title="Profilni ulab bo‘lmadi" action={<Button secondary onClick={() => setAttempt(value => value + 1)}>Qayta urinish</Button>}>Aloqani tekshirib, yana urinib ko‘ring.</StateCard> : session.data.role === 'admin' ? <StateCard title={`Xush kelibsiz, ${name}`}>Administrator huquqingiz ulandi. Mijozlar va xizmat yozuvlari boshqaruvi tayyorlanmoqda.</StateCard> : session.data.account === 'unlinked' ? <StateCard title={`Xush kelibsiz, ${name}`} >Telegram profilingiz ulandi. Servis administratori sizni mijoz kartangizga bog‘lagach, avtomobillaringiz va xizmatlar tarixi shu yerda ko‘rinadi.</StateCard> : <StateCard title={`Xush kelibsiz, ${name}`}>Mijoz kartangiz ulandi. Avtomobillaringiz va xizmatlar tarixi keyingi ekranda ko‘rinadi.</StateCard>}
+    {status === 'outside' ? <StateCard title="Telegram orqali oching" action={configuredBotLink ? <a className="button-primary" href={configuredBotLink} rel="noopener noreferrer">Telegram botni ochish</a> : null}>Servis botidagi «Kabinetni ochish» tugmasidan foydalaning.</StateCard> : session.state === 'loading' || session.state === 'idle' ? <StateCard kind="loading" title="Profil tekshirilmoqda…">Telegram hisobingiz xavfsiz tekshirilmoqda.</StateCard> : session.state === 'error' ? <StateCard kind="error" title="Profilni ulab bo‘lmadi" action={<Button secondary onClick={() => setAttempt(value => value + 1)}>Qayta urinish</Button>}>Aloqani tekshirib, yana urinib ko‘ring.</StateCard> : session.data.role === 'admin' ? <AdminPanel initData={app?.initData} name={name} /> : session.data.account === 'unlinked' ? <StateCard title={`Xush kelibsiz, ${name}`} >Telegram profilingiz ulandi. Servis administratori sizni mijoz kartangizga bog‘lagach, avtomobillaringiz va xizmatlar tarixi shu yerda ko‘rinadi.</StateCard> : <StateCard title={`Xush kelibsiz, ${name}`}>Mijoz kartangiz ulandi. Avtomobillaringiz va xizmatlar tarixi keyingi ekranda ko‘rinadi.</StateCard>}
   </section>;
+}
+
+function AdminPanel({ initData, name }) {
+  const [state, setState] = useState({ kind: 'loading', customers: [] });
+  const [reload, setReload] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState('');
+  useEffect(() => {
+    let active = true;
+    setState(current => ({ ...current, kind: 'loading' }));
+    telegramRequest(initData, 'admin-dashboard').then(data => {
+      if (active) setState({ kind: 'ready', customers: Array.isArray(data.customers) ? data.customers : [] });
+    }).catch(() => { if (active) setState({ kind: 'error', customers: [] }); });
+    return () => { active = false; };
+  }, [initData, reload]);
+  const submit = async event => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const formData = new FormData(form);
+    setBusy(true); setNotice('');
+    try {
+      const data = await telegramRequest(initData, 'admin-create-customer', { customer: {
+        firstName: formData.get('firstName'), lastName: formData.get('lastName'), phone: formData.get('phone'),
+      } });
+      form.reset();
+      setState(current => ({ kind: 'ready', customers: [data.customer, ...current.customers] }));
+      setNotice('Mijoz qo‘shildi. Endi unga avtomobil biriktirish mumkin.');
+    } catch { setNotice('Mijozni saqlab bo‘lmadi. Qayta urinib ko‘ring.'); }
+    finally { setBusy(false); }
+  };
+  return <section className="admin-panel"><div className="admin-intro"><span className="admin-badge">ADMIN</span><h2>Xush kelibsiz, {name}</h2><p>Mijozlarni servis bazasiga qo‘shing.</p></div><form className="admin-form" onSubmit={submit}><h3>Yangi mijoz</h3><Field label="Ismi" name="firstName" required maxLength="80" /><Field label="Familiyasi" name="lastName" maxLength="80" /><Field label="Telefon raqami" name="phone" inputMode="tel" maxLength="32" placeholder="+998 90 123 45 67" /><Button busy={busy} type="submit"><Icon name="plus" size={20} /> Mijoz qo‘shish</Button>{notice && <p className="admin-notice" role="status">{notice}</p>}</form><section className="customer-list"><div className="customer-list-heading"><h3>Mijozlar</h3><button className="text-button" type="button" onClick={() => setReload(value => value + 1)}>Yangilash</button></div>{state.kind === 'loading' ? <StateCard kind="loading" title="Mijozlar yuklanmoqda…" /> : state.kind === 'error' ? <StateCard kind="error" title="Ro‘yxatni yuklab bo‘lmadi" action={<Button secondary onClick={() => setReload(value => value + 1)}>Qayta urinish</Button>} /> : state.customers.length === 0 ? <StateCard title="Hali mijoz yo‘q">Yuqoridagi forma orqali birinchi mijozni qo‘shing.</StateCard> : <ul>{state.customers.map(customer => <li key={customer.id}><Icon name="user" size={22} /><span><strong>{[customer.first_name, customer.last_name].filter(Boolean).join(' ')}</strong><small>{customer.phone || 'Telefon raqami kiritilmagan'}</small></span></li>)}</ul>}</section></section>;
 }
 
 function Help() {

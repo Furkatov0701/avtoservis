@@ -175,6 +175,22 @@ test('Mini App requests reject altered, expired and unsigned initData before dat
   assert.equal(calls, 0);
 });
 
+test('admin dashboard requires the Telegram profile to be explicitly assigned an admin role', async () => {
+  const calls = [];
+  const handler = createEdgeHandler({ env: name => ({ ...values, SUPABASE_SERVICE_ROLE_KEY: 'service-role-test-key' })[name], fetcher: async (target, options) => {
+    const url = new URL(target); calls.push({ url, options });
+    if (url.pathname.endsWith('/telegram_profiles')) return new Response('', { status: 201 });
+    if (url.pathname.endsWith('/service_staff')) return json([{ role: 'admin' }]);
+    if (url.pathname.endsWith('/customers') && url.searchParams.has('order')) return json([{ id: 'f3aa03a9-8e87-462b-9581-985f4399af6f', first_name: 'Ali', last_name: 'Valiyev', phone: '+998901234567' }]);
+    if (url.pathname.endsWith('/customers')) return json([]);
+    throw new Error('unexpected target');
+  } });
+  const response = await handler(request({ action: 'admin-dashboard', initData: await signedInitData() }));
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).customers[0].first_name, 'Ali');
+  assert.equal(calls.length, 4);
+});
+
 test('generated dashboard entry registers a working handler using the Deno adapter', async () => {
   const previous = globalThis.Deno; let registered;
   globalThis.Deno = { env: { get: name => values[name] }, serve: handler => { registered = handler; } };

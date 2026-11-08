@@ -6,21 +6,27 @@ function edgeEndpoint(env = import.meta.env) {
   return new URL('/functions/v1/telegram-bot', project).href;
 }
 
-export async function loadTelegramSession(initData, fetcher = fetch, env = import.meta.env) {
+export async function telegramRequest(initData, action, data = {}, fetcher = fetch, env = import.meta.env) {
   const endpoint = edgeEndpoint(env);
-  if (!endpoint || typeof initData !== 'string' || !initData.trim()) throw new Error('telegram_session_unavailable');
+  if (!endpoint || typeof initData !== 'string' || !initData.trim()) throw new Error('telegram_request_unavailable');
   let response;
   try {
     response = await fetcher(endpoint, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ action: 'miniapp-session', initData }),
+      body: JSON.stringify({ action, initData, ...data }),
       signal: AbortSignal.timeout(10_000),
       credentials: 'omit',
     });
-  } catch { throw new Error('telegram_session_unavailable'); }
+  } catch { throw new Error('telegram_request_unavailable'); }
   let payload;
-  try { payload = await response.json(); } catch { throw new Error('telegram_session_unavailable'); }
-  if (!response.ok || payload?.ok !== true || !['ready', 'unlinked'].includes(payload.account)) throw new Error('telegram_session_unavailable');
+  try { payload = await response.json(); } catch { throw new Error('telegram_request_unavailable'); }
+  if (!response.ok || payload?.ok !== true) throw new Error('telegram_request_unavailable');
+  return payload;
+}
+
+export async function loadTelegramSession(initData, fetcher = fetch, env = import.meta.env) {
+  const payload = await telegramRequest(initData, 'miniapp-session', {}, fetcher, env);
+  if (!['ready', 'unlinked'].includes(payload.account) || !['admin', 'user'].includes(payload.role)) throw new Error('telegram_session_unavailable');
   return payload;
 }
