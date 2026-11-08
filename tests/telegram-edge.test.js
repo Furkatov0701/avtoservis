@@ -149,17 +149,18 @@ test('Mini App sessions verify Telegram initData before a server-side profile up
   const databaseHandler = createEdgeHandler({ env: name => ({ ...values, SUPABASE_SERVICE_ROLE_KEY: 'service-role-test-key' })[name], fetcher: async (target, options) => {
     requests.push({ target, options });
     if (new URL(target).pathname.endsWith('/telegram_profiles')) return new Response('', { status: 201, headers: { 'content-type': 'application/json' } });
-    if (new URL(target).pathname.endsWith('/customers')) return json([]);
+    if (new URL(target).pathname.endsWith('/customers') || new URL(target).pathname.endsWith('/service_staff')) return json([]);
     throw new Error('unexpected target');
   } });
   const initData = await signedInitData();
   const response = await databaseHandler(request({ action: 'miniapp-session', initData }, { origin: 'https://example.com' }));
   assert.equal(response.status, 200);
-  assert.deepEqual(await response.json(), { ok: true, account: 'unlinked', profile: { firstName: 'Ali', lastName: '', username: 'ali' }, customer: null });
+  assert.deepEqual(await response.json(), { ok: true, account: 'unlinked', role: 'user', profile: { firstName: 'Ali', lastName: '', username: 'ali' }, customer: null });
   assert.equal(response.headers.get('access-control-allow-origin'), 'https://example.com');
-  assert.equal(requests.length, 2);
+  assert.equal(requests.length, 3);
   assert.match(requests[0].target, /telegram_profiles\?on_conflict=telegram_user_id$/);
   assert.match(requests[1].target, /customers\?telegram_user_id=eq\.456/);
+  assert.match(requests[2].target, /service_staff\?telegram_user_id=eq\.456/);
   assert.equal(requests[0].options.headers.authorization, 'Bearer service-role-test-key');
   assert.ok(handler);
 });

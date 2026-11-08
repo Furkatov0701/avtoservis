@@ -135,10 +135,15 @@ async function miniAppSession(config, body, fetcher) {
   const customers = await databaseRequest(config, `/rest/v1/customers?telegram_user_id=eq.${encodeURIComponent(String(telegram.telegramUserId))}&select=id,first_name,last_name&limit=1`, {
     method: 'GET', headers: { accept: 'application/json' },
   }, fetcher);
+  const staff = await databaseRequest(config, `/rest/v1/service_staff?telegram_user_id=eq.${encodeURIComponent(String(telegram.telegramUserId))}&select=role&limit=1`, {
+    method: 'GET', headers: { accept: 'application/json' },
+  }, fetcher);
   const customer = Array.isArray(customers) ? customers[0] : null;
+  const role = Array.isArray(staff) && staff[0]?.role === 'admin' ? 'admin' : 'user';
   return {
     ok: true,
     account: customer ? 'ready' : 'unlinked',
+    role,
     profile: { firstName: telegram.firstName, lastName: telegram.lastName, username: telegram.username },
     customer: customer ? { id: customer.id, firstName: customer.first_name, lastName: customer.last_name } : null,
   };
