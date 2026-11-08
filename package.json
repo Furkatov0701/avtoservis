@@ -15,7 +15,9 @@
     "test:telegram": "playwright test --config playwright.telegram.config.js",
     "bot:serve": "node --env-file-if-exists=.env.server.local server/telegram/index.js",
     "bot:check": "node --env-file-if-exists=.env.server.local scripts/configure-telegram-bot.js --check",
-    "bot:configure": "node --env-file-if-exists=.env.server.local scripts/configure-telegram-bot.js --configure"
+    "bot:configure": "node --env-file-if-exists=.env.server.local scripts/configure-telegram-bot.js --configure",
+    "build:edge": "node scripts/build-telegram-edge.js",
+    "check:edge": "node scripts/build-telegram-edge.js --check"
   },
   "dependencies": {
     "@fontsource-variable/dm-sans": "^5.3.0",

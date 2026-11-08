@@ -100,3 +100,15 @@ rejimni yig'adi. Bu hozir tayyorlanayotgan kabinet qobig'i, haqiqiy login emas.
 kiritilmaydi. Sozlash va tekshirish: [Telegram yo'riqnomasi](docs/telegram-setup.md).
 
 `npm run test:telegram` — SDK taqlidi bilan Telegram ekranlari testi.
+
+
+## Supabase Edge bot serveri
+
+Mavjud Supabase loyihasi uchun `supabase/functions/telegram-bot` tayyorlandi.
+Dashboardga nusxalash uchun `npm run build:edge` bitta fayl yaratadi;
+`npm run check:edge` uning manba bilan mosligini tekshiradi.
+[Joylashtirish va himoyalangan sozlash](docs/supabase-telegram-deploy.md).
+
+Token Supabase Secrets'dan olinadi. Kodga token kiritilmaydi. Haqiqiy deploy
+va botga ulanish hali bajarilmagan; Telegram akkaunt autentifikatsiyasi keyingi
+bosqichda ulanadi.

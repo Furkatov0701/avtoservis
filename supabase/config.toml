@@ -1,0 +1,6 @@
+project_id = "avtoservis"
+
+# Only the Telegram webhook uses this setting, not the app's database/Auth policies.
+# Every webhook POST checks its secret header; setup POSTs require a separate secret.
+[functions.telegram-bot]
+verify_jwt = false

@@ -39,6 +39,23 @@ tarix sifatida saqlangan; yangi yo'nalish ustun turadi.
   commitiga kiritiladi; ushbu bosqich GitHub'ga push yoki nashr qilmaydi.
 - Ulanish yo'riqnomasi: [telegram-setup.md](telegram-setup.md).
 
+## Supabase Edge bot serveri — 2026-11-08
+
+- Server joyi sifatida mavjud Supabase Edge Functions tanlandi.
+- Foydalanuvchi tokenni almashtirish va Secrets'ga saqlash ko'rsatmasidan
+  keyin «saqladim» dedi. Yangi token agentga berilmagan, haqiqiyligi tekshirilmagan.
+  Chatda oshkor bo'lgan token kodga/faylga yozilmadi yoki ishlatilmadi.
+- `telegram-bot` Edge handler va dashboardga ko'chirish uchun bitta `.ts`
+  fayl tayyorlandi. Webhook va sozlash so'rovlari turli maxfiy belgilar bilan
+  himoyalangan; public publishable kalit setup vakolatini bermaydi.
+- Botning haqiqiyligini tekshiruvchi check va komandalar/menu/webhookni
+  sozlovchi configure amallari mavjud. Real Telegram'ga qarshi bajarilmagan.
+- Joriy tekshiruv: 23 ta Node testi o'tdi (11 tasi yangi Edge testlari).
+  Dashboard fayli mosligi tekshirildi, Deno adapteri stub bilan sinaldi.
+- Haqiqiy Supabase deploy, setup sirini kiritish, Telegram API check/configure,
+  Telegram-mode frontend nashri va haqiqiy bot sinovi hali qolgan.
+- Qadamlar: [Supabase bot deploy](supabase-telegram-deploy.md).
+
 ## Auth bo'yicha tasdiqlar — 2026-11-07
 
 - Ochiq ro'yxatdan o'tish faqat user uchun.

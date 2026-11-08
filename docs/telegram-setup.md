@@ -1,5 +1,9 @@
 # Telegram Mini App — birinchi bosqichni ulash
 
+> 2026-11-08: server uchun mavjud Supabase Edge Functions tanlandi.
+> Joriy joylashtirish qadamlari: [Supabase bot deploy](supabase-telegram-deploy.md).
+> Quyidagi Node server ko'rsatmalari lokal/alternativ transport sifatida saqlangan.
+
 2026-11-08: Telegram ekran qobig'i va bot webhook serveri yozildi. Bu hali
 akkauntga kirish emas. Serverda initData tekshiruvi, Telegram -> profil bog'lanishi,
 Supabase sessiyasi va biznes ma'lumotlari keyingi bosqichga tegishli.
