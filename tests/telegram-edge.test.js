@@ -25,6 +25,18 @@ function request(body, headers = {}, requestUrl = url) {
 }
 const adminHeaders = { 'x-avto-setup-secret': setupSecret };
 
+async function signedInitData(user = { id: 456, first_name: 'Ali', username: 'ali' }, authDate = Math.floor(Date.now() / 1000)) {
+  const params = new URLSearchParams({ auth_date: String(authDate), query_id: 'query-id', user: JSON.stringify(user) });
+  const dataCheckString = [...params].sort(([left], [right]) => left.localeCompare(right)).map(([key, value]) => `${key}=${value}`).join('\n');
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey('raw', encoder.encode('WebAppData'), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const secret = await crypto.subtle.sign('HMAC', key, encoder.encode(token));
+  const checkKey = await crypto.subtle.importKey('raw', secret, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const bytes = new Uint8Array(await crypto.subtle.sign('HMAC', checkKey, encoder.encode(dataCheckString)));
+  params.set('hash', Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join(''));
+  return params.toString();
+}
+
 test('Edge GET reports local configuration without contacting Telegram or exposing a token', async () => {
   const { handler, calls } = fixture();
   const result = await handler(new Request(url));
@@ -126,6 +138,40 @@ test('only the Supabase dashboard origin receives setup CORS permissions', async
   assert.equal(allowed.status, 204); assert.equal(allowed.headers.get('access-control-allow-origin'), 'https://supabase.com');
   const denied = await handler(new Request(url, { method: 'OPTIONS', headers: { origin: 'https://evil.test' } }));
   assert.equal(denied.status, 403); assert.equal(denied.headers.get('access-control-allow-origin'), null);
+});
+
+test('Mini App sessions verify Telegram initData before a server-side profile upsert', async () => {
+  const requests = [];
+  const { handler } = fixture({ SUPABASE_SERVICE_ROLE_KEY: 'service-role-test-key' }, async (method) => {
+    // This fixture callback only sees Telegram calls; database calls are handled below.
+    return json({ ok: true, result: method === 'getMe' ? { is_bot: true, username: 'urgutservis_bot' } : true });
+  });
+  const databaseHandler = createEdgeHandler({ env: name => ({ ...values, SUPABASE_SERVICE_ROLE_KEY: 'service-role-test-key' })[name], fetcher: async (target, options) => {
+    requests.push({ target, options });
+    if (new URL(target).pathname.endsWith('/telegram_profiles')) return new Response('', { status: 201, headers: { 'content-type': 'application/json' } });
+    if (new URL(target).pathname.endsWith('/customers')) return json([]);
+    throw new Error('unexpected target');
+  } });
+  const initData = await signedInitData();
+  const response = await databaseHandler(request({ action: 'miniapp-session', initData }, { origin: 'https://example.com' }));
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { ok: true, account: 'unlinked', profile: { firstName: 'Ali', lastName: '', username: 'ali' }, customer: null });
+  assert.equal(response.headers.get('access-control-allow-origin'), 'https://example.com');
+  assert.equal(requests.length, 2);
+  assert.match(requests[0].target, /telegram_profiles\?on_conflict=telegram_user_id$/);
+  assert.match(requests[1].target, /customers\?telegram_user_id=eq\.456/);
+  assert.equal(requests[0].options.headers.authorization, 'Bearer service-role-test-key');
+  assert.ok(handler);
+});
+
+test('Mini App requests reject altered, expired and unsigned initData before database access', async () => {
+  let calls = 0;
+  const handler = createEdgeHandler({ env: name => ({ ...values, SUPABASE_SERVICE_ROLE_KEY: 'service-role-test-key' })[name], fetcher: async () => { calls++; return json([]); } });
+  const valid = await signedInitData();
+  for (const initData of [valid.replace('Ali', 'Vali'), await signedInitData({ id: 9, first_name: 'Old' }, Math.floor(Date.now() / 1000) - 90_000), 'auth_date=1&hash=bad']) {
+    assert.equal((await handler(request({ action: 'miniapp-session', initData }))).status, 401);
+  }
+  assert.equal(calls, 0);
 });
 
 test('generated dashboard entry registers a working handler using the Deno adapter', async () => {

@@ -1,4 +1,5 @@
 import { replyForUpdate } from './bot-replies.js';
+import { verifyMiniAppInitData } from './miniapp-auth.js';
 
 const FUNCTION_NAME = 'telegram-bot';
 const DASHBOARD_ORIGIN = 'https://supabase.com';
@@ -24,7 +25,11 @@ function configFromEnv(env) {
     if (url.protocol !== 'https:' || url.username || url.password || ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)) throw new Error('invalid_mini_app_url');
     miniAppUrl = url.href;
   }
-  return { token, username, miniAppUrl, setupSecret: env('TELEGRAM_SETUP_SECRET') || '', webhookUrl: new URL(`/functions/v1/${FUNCTION_NAME}`, project).href };
+  return {
+    token, username, miniAppUrl, miniAppOrigin: miniAppUrl ? new URL(miniAppUrl).origin : null,
+    setupSecret: env('TELEGRAM_SETUP_SECRET') || '', serviceRoleKey: env('SUPABASE_SERVICE_ROLE_KEY') || '',
+    projectUrl: project.href, webhookUrl: new URL(`/functions/v1/${FUNCTION_NAME}`, project).href,
+  };
 }
 
 export async function deriveWebhookSecret(token, webhookUrl) {
@@ -98,22 +103,65 @@ async function setup(config, body, fetcher) {
   return { ok: true, bot: `@${bot.username}`, webhookConfigured: true, miniAppConfigured: Boolean(config.miniAppUrl) };
 }
 
+async function databaseRequest(config, path, options, fetcher) {
+  if (!config.serviceRoleKey) throw { status: 503, code: 'server_database_required' };
+  let response;
+  try {
+    response = await fetcher(new URL(path, config.projectUrl).href, {
+      ...options,
+      headers: { apikey: config.serviceRoleKey, authorization: `Bearer ${config.serviceRoleKey}`, ...(options.headers || {}) },
+      signal: AbortSignal.timeout(8000), redirect: 'error',
+    });
+  } catch { throw { status: 502, code: 'database_connection_failed' }; }
+  if (!response.ok) throw { status: 502, code: 'database_request_failed' };
+  let body;
+  try { body = await response.text(); } catch { throw { status: 502, code: 'database_invalid_response' }; }
+  if (!body) return null;
+  try { return JSON.parse(body); } catch { throw { status: 502, code: 'database_invalid_response' }; }
+}
+
+async function miniAppSession(config, body, fetcher) {
+  const telegram = await verifyMiniAppInitData(body?.initData, config.token);
+  const profile = {
+    telegram_user_id: telegram.telegramUserId,
+    first_name: telegram.firstName,
+    last_name: telegram.lastName,
+    username: telegram.username,
+    language_code: telegram.languageCode,
+  };
+  await databaseRequest(config, '/rest/v1/telegram_profiles?on_conflict=telegram_user_id', {
+    method: 'POST', headers: { 'content-type': 'application/json', prefer: 'resolution=merge-duplicates,return=minimal' }, body: JSON.stringify([profile]),
+  }, fetcher);
+  const customers = await databaseRequest(config, `/rest/v1/customers?telegram_user_id=eq.${encodeURIComponent(String(telegram.telegramUserId))}&select=id,first_name,last_name&limit=1`, {
+    method: 'GET', headers: { accept: 'application/json' },
+  }, fetcher);
+  const customer = Array.isArray(customers) ? customers[0] : null;
+  return {
+    ok: true,
+    account: customer ? 'ready' : 'unlinked',
+    profile: { firstName: telegram.firstName, lastName: telegram.lastName, username: telegram.username },
+    customer: customer ? { id: customer.id, firstName: customer.first_name, lastName: customer.last_name } : null,
+  };
+}
+
 export function createEdgeHandler({ env, fetcher = fetch }) {
   return async request => {
-    const headers = { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', vary: 'Origin' };
-    if (request.headers.get('origin') === DASHBOARD_ORIGIN) {
-      headers['access-control-allow-origin'] = DASHBOARD_ORIGIN;
-      headers['access-control-allow-headers'] = 'authorization, apikey, content-type, x-client-info, x-avto-setup-secret';
-      headers['access-control-allow-methods'] = 'GET, POST, OPTIONS';
-    }
-    const send = (status, body) => new Response(JSON.stringify(body), { status, headers });
     const path = new URL(request.url).pathname.replace(/\/$/, '');
     const validPaths = ['', `/${FUNCTION_NAME}`, `/functions/v1/${FUNCTION_NAME}`];
-    if (!validPaths.includes(path)) return send(404, { error: 'not_found' });
-    if (request.method === 'OPTIONS') return new Response(null, { status: request.headers.get('origin') === DASHBOARD_ORIGIN ? 204 : 403, headers });
-    if (!['GET', 'POST'].includes(request.method)) return send(405, { error: 'method_not_allowed' });
     let config;
-    try { config = configFromEnv(env); } catch { return send(503, { error: 'server_configuration_required' }); }
+    try { config = configFromEnv(env); } catch { return new Response(JSON.stringify({ error: 'server_configuration_required' }), { status: 503, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' } }); }
+    const origin = request.headers.get('origin');
+    const allowedOrigin = origin === DASHBOARD_ORIGIN || origin === config.miniAppOrigin ? origin : null;
+    const headers = { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', vary: 'Origin' };
+    if (allowedOrigin) {
+      headers['access-control-allow-origin'] = allowedOrigin;
+      headers['access-control-allow-headers'] = 'content-type, x-avto-setup-secret';
+      headers['access-control-allow-methods'] = 'POST, OPTIONS';
+    }
+    const send = (status, body) => new Response(JSON.stringify(body), { status, headers });
+    if (!validPaths.includes(path)) return send(404, { error: 'not_found' });
+    if (request.method === 'OPTIONS') return new Response(null, { status: allowedOrigin ? 204 : 403, headers });
+    if (!['GET', 'POST'].includes(request.method)) return send(405, { error: 'method_not_allowed' });
     // Health checks do not invoke Telegram and do not verify that a token is valid.
     if (request.method === 'GET') return send(200, { status: 'ok', service: 'avto-telegram-bot', setupEnabled: validSetupSecret(config.setupSecret), miniAppConfigured: Boolean(config.miniAppUrl) });
     try {
@@ -122,13 +170,14 @@ export function createEdgeHandler({ env, fetcher = fetch }) {
         if (!validSetupSecret(config.setupSecret) || !(await matchesSecret(setupHeader, config.setupSecret))) return send(401, { error: 'unauthorized' });
         return send(200, await setup(config, await readJson(request, 4096), fetcher));
       }
+      const body = await readJson(request, 65536);
+      if (body?.action === 'miniapp-session') return send(200, await miniAppSession(config, body, fetcher));
       const webhookSecret = await deriveWebhookSecret(config.token, config.webhookUrl);
       if (!(await matchesSecret(request.headers.get('x-telegram-bot-api-secret-token'), webhookSecret))) return send(401, { error: 'unauthorized' });
-      const update = await readJson(request, 65536);
-      if (!Number.isSafeInteger(update?.update_id) || update.update_id < 0) return send(400, { error: 'invalid_update' });
-      return send(200, replyForUpdate(update, config) || { ok: true });
+      if (!Number.isSafeInteger(body?.update_id) || body.update_id < 0) return send(400, { error: 'invalid_update' });
+      return send(200, replyForUpdate(body, config) || { ok: true });
     } catch (error) {
-      const known = ['json_required', 'body_too_large', 'invalid_json', 'invalid_action', 'telegram_connection_failed', 'telegram_invalid_response', 'telegram_request_failed', 'bot_username_mismatch'];
+      const known = ['json_required', 'body_too_large', 'invalid_json', 'invalid_action', 'telegram_connection_failed', 'telegram_invalid_response', 'telegram_request_failed', 'bot_username_mismatch', 'invalid_init_data', 'telegram_identity_invalid', 'telegram_identity_expired', 'invalid_telegram_user', 'server_database_required', 'database_connection_failed', 'database_request_failed', 'database_invalid_response'];
       if (!known.includes(error?.code)) return send(500, { error: 'internal_error' });
       return send(error.status, { error: error.code, ...(error.stage ? { stage: error.stage } : {}) });
     }

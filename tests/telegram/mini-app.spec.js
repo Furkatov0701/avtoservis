@@ -21,11 +21,12 @@ test('outside Telegram offers the configured bot without exposing sample custome
   await expect(page.locator('.preview-panel')).toHaveCount(0);
 });
 
-test('Telegram viewport and back button work; initData never unlocks an account', async ({ page }) => {
+test('Telegram viewport and back button work; unverified initData never unlocks an account', async ({ page }) => {
   const errors = []; page.on('pageerror', error => errors.push(error.message));
   const apiCalls = []; page.on('request', request => { if (/supabase|\/auth\/|\/api\//.test(request.url())) apiCalls.push(request.url()); });
+  await page.route('**/functions/v1/telegram-bot', route => route.fulfill({ status: 401, contentType: 'application/json', body: '{"error":"telegram_identity_invalid"}' }));
   await sdk(page); await page.goto('/app/');
-  await expect(page.getByRole('heading', { name: 'Kabinet tayyorlanmoqda' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Profilni ulab bo‘lmadi' })).toBeVisible();
   await expect(page.locator('body')).not.toContainText('ForgedAdmin');
   expect(await page.evaluate(() => sdkCalls)).toEqual(['ready', 'expand']);
   expect(await page.evaluate(() => document.documentElement.style.getPropertyValue('--avto-tg-height'))).toBe('760px');
@@ -42,7 +43,9 @@ test('Telegram viewport and back button work; initData never unlocks an account'
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   }
   await page.screenshot({ path: '/tmp/avto-telegram-foundation.png', fullPage: true });
-  expect(apiCalls).toEqual([]); expect(errors).toEqual([]);
+  expect(apiCalls.length).toBeGreaterThan(0);
+  expect(apiCalls.every(url => url === 'https://lewojwhdkbarktjhyrbi.supabase.co/functions/v1/telegram-bot')).toBe(true);
+  expect(errors).toEqual([]);
   expect(await page.evaluate(() => JSON.stringify(localStorage))).not.toContain('unverified-test-fixture');
 });
 

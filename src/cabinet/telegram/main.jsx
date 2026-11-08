@@ -4,6 +4,7 @@ import { createMemoryRouter, Link, Outlet, RouterProvider, useLocation, useNavig
 import { Icon } from '../Icon';
 import { Button, StateCard } from '../Primitives';
 import { botLink, loadTelegramSdk, mountTelegramViewport } from './sdk';
+import { loadTelegramSession } from './api';
 import './telegram.css';
 
 const TelegramContext = createContext(null);
@@ -37,15 +38,29 @@ function TelegramLayout() {
     return () => { app.BackButton.offClick(back); app.BackButton.hide(); };
   }, [app, childPage, navigate]);
   useEffect(() => { document.title = childPage ? 'Yordam — Avto' : 'Avto — Telegram kabinet'; }, [childPage]);
-  return <TelegramContext.Provider value={{ status }}><div className="telegram-layout"><header className="app-header"><Link className="icon-button" to="/" aria-label="Bosh sahifa"><Icon name={childPage ? 'back' : 'car'} /></Link><strong className="telegram-brand">AVTO</strong><Link className="telegram-help" to="/yordam">Yordam</Link></header><main id="main-content" className="telegram-content">
+  return <TelegramContext.Provider value={{ status, app }}><div className="telegram-layout"><header className="app-header"><Link className="icon-button" to="/" aria-label="Bosh sahifa"><Icon name={childPage ? 'back' : 'car'} /></Link><strong className="telegram-brand">AVTO</strong><Link className="telegram-help" to="/yordam">Yordam</Link></header><main id="main-content" className="telegram-content">
     {status === 'loading' ? <StateCard kind="loading" title="Ilova ochilmoqda…" /> : status === 'error' ? <StateCard kind="error" title="Telegram bilan bog‘lanib bo‘lmadi" action={<Button onClick={() => setAttempt(value => value + 1)}>Qayta urinish</Button>}>Internet aloqasini tekshirib, qayta urinib ko‘ring.</StateCard> : <Outlet />}
   </main></div></TelegramContext.Provider>;
 }
 
 function Welcome() {
-  const { status } = useContext(TelegramContext);
+  const { status, app } = useContext(TelegramContext);
+  const [session, setSession] = useState({ state: 'idle', data: null });
+  const [attempt, setAttempt] = useState(0);
+  useEffect(() => {
+    let active = true;
+    if (status !== 'inside' || !app?.initData) return undefined;
+    setSession({ state: 'loading', data: null });
+    loadTelegramSession(app.initData).then(data => {
+      if (active) setSession({ state: 'ready', data });
+    }).catch(() => {
+      if (active) setSession({ state: 'error', data: null });
+    });
+    return () => { active = false; };
+  }, [status, app, attempt]);
+  const name = session.data?.profile?.firstName || 'siz';
   return <section className="telegram-welcome"><span className="telegram-emblem"><Icon name="car" size={76} /></span><h1>Avto kabinetingiz</h1><p>Avtomobillaringiz va xizmatlar tarixi — Telegram ichida.</p>
-    {status === 'outside' ? <StateCard title="Telegram orqali oching" action={configuredBotLink ? <a className="button-primary" href={configuredBotLink} rel="noopener noreferrer">Telegram botni ochish</a> : null}>Servis botidagi «Kabinetni ochish» tugmasidan foydalaning.</StateCard> : <StateCard title="Kabinet tayyorlanmoqda">Xizmat ishga tushgach, avtomobillaringiz va xizmatlar tarixini shu yerda ko‘rasiz.</StateCard>}
+    {status === 'outside' ? <StateCard title="Telegram orqali oching" action={configuredBotLink ? <a className="button-primary" href={configuredBotLink} rel="noopener noreferrer">Telegram botni ochish</a> : null}>Servis botidagi «Kabinetni ochish» tugmasidan foydalaning.</StateCard> : session.state === 'loading' || session.state === 'idle' ? <StateCard kind="loading" title="Profil tekshirilmoqda…">Telegram hisobingiz xavfsiz tekshirilmoqda.</StateCard> : session.state === 'error' ? <StateCard kind="error" title="Profilni ulab bo‘lmadi" action={<Button secondary onClick={() => setAttempt(value => value + 1)}>Qayta urinish</Button>}>Aloqani tekshirib, yana urinib ko‘ring.</StateCard> : session.data.account === 'unlinked' ? <StateCard title={`Xush kelibsiz, ${name}`} >Telegram profilingiz ulandi. Servis administratori sizni mijoz kartangizga bog‘lagach, avtomobillaringiz va xizmatlar tarixi shu yerda ko‘rinadi.</StateCard> : <StateCard title={`Xush kelibsiz, ${name}`}>Mijoz kartangiz ulandi. Avtomobillaringiz va xizmatlar tarixi keyingi ekranda ko‘rinadi.</StateCard>}
   </section>;
 }
 
