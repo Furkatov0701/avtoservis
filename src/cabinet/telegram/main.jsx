@@ -69,6 +69,7 @@ function AdminPanel({ initData, name }) {
   const [reload, setReload] = useState(0);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
+  const [selectedCustomer, setSelectedCustomer] = useState(null);
   useEffect(() => {
     let active = true;
     setState(current => ({ ...current, kind: 'loading' }));
@@ -88,11 +89,44 @@ function AdminPanel({ initData, name }) {
       } });
       form.reset();
       setState(current => ({ kind: 'ready', customers: [data.customer, ...current.customers] }));
+      setSelectedCustomer({ id: data.customer.id, first_name: data.customer.firstName, last_name: data.customer.lastName, phone: data.customer.phone });
       setNotice('Mijoz qo‘shildi. Endi unga avtomobil biriktirish mumkin.');
     } catch { setNotice('Mijozni saqlab bo‘lmadi. Qayta urinib ko‘ring.'); }
     finally { setBusy(false); }
   };
-  return <section className="admin-panel"><div className="admin-intro"><span className="admin-badge">ADMIN</span><h2>Xush kelibsiz, {name}</h2><p>Mijozlarni servis bazasiga qo‘shing.</p></div><form className="admin-form" onSubmit={submit}><h3>Yangi mijoz</h3><Field label="Ismi" name="firstName" required maxLength="80" /><Field label="Familiyasi" name="lastName" maxLength="80" /><Field label="Telefon raqami" name="phone" inputMode="tel" maxLength="32" placeholder="+998 90 123 45 67" /><Button busy={busy} type="submit"><Icon name="plus" size={20} /> Mijoz qo‘shish</Button>{notice && <p className="admin-notice" role="status">{notice}</p>}</form><section className="customer-list"><div className="customer-list-heading"><h3>Mijozlar</h3><button className="text-button" type="button" onClick={() => setReload(value => value + 1)}>Yangilash</button></div>{state.kind === 'loading' ? <StateCard kind="loading" title="Mijozlar yuklanmoqda…" /> : state.kind === 'error' ? <StateCard kind="error" title="Ro‘yxatni yuklab bo‘lmadi" action={<Button secondary onClick={() => setReload(value => value + 1)}>Qayta urinish</Button>} /> : state.customers.length === 0 ? <StateCard title="Hali mijoz yo‘q">Yuqoridagi forma orqali birinchi mijozni qo‘shing.</StateCard> : <ul>{state.customers.map(customer => <li key={customer.id}><Icon name="user" size={22} /><span><strong>{[customer.first_name, customer.last_name].filter(Boolean).join(' ')}</strong><small>{customer.phone || 'Telefon raqami kiritilmagan'}</small></span></li>)}</ul>}</section></section>;
+  return <section className="admin-panel"><div className="admin-intro"><span className="admin-badge">ADMIN</span><h2>Xush kelibsiz, {name}</h2><p>Mijozlarni servis bazasiga qo‘shing.</p></div><form className="admin-form" onSubmit={submit}><h3>Yangi mijoz</h3><Field label="Ismi" name="firstName" required maxLength="80" /><Field label="Familiyasi" name="lastName" maxLength="80" /><Field label="Telefon raqami" name="phone" inputMode="tel" maxLength="32" placeholder="+998 90 123 45 67" /><Button busy={busy} type="submit"><Icon name="plus" size={20} /> Mijoz qo‘shish</Button>{notice && <p className="admin-notice" role="status">{notice}</p>}</form><section className="customer-list"><div className="customer-list-heading"><h3>Mijozlar</h3><button className="text-button" type="button" onClick={() => setReload(value => value + 1)}>Yangilash</button></div>{state.kind === 'loading' ? <StateCard kind="loading" title="Mijozlar yuklanmoqda…" /> : state.kind === 'error' ? <StateCard kind="error" title="Ro‘yxatni yuklab bo‘lmadi" action={<Button secondary onClick={() => setReload(value => value + 1)}>Qayta urinish</Button>} /> : state.customers.length === 0 ? <StateCard title="Hali mijoz yo‘q">Yuqoridagi forma orqali birinchi mijozni qo‘shing.</StateCard> : <ul>{state.customers.map(customer => <li key={customer.id}><button className={`customer-button ${selectedCustomer?.id === customer.id ? 'selected' : ''}`} type="button" onClick={() => setSelectedCustomer(customer)}><Icon name="user" size={22} /><span><strong>{[customer.first_name, customer.last_name].filter(Boolean).join(' ')}</strong><small>{customer.phone || 'Telefon raqami kiritilmagan'}</small></span><Icon name="right" size={19} /></button></li>)}</ul>}</section>{selectedCustomer && <VehiclePanel initData={initData} customer={selectedCustomer} />}</section>;
+}
+
+function VehiclePanel({ initData, customer }) {
+  const [state, setState] = useState({ kind: 'loading', vehicles: [] });
+  const [reload, setReload] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState('');
+  useEffect(() => {
+    let active = true;
+    setState({ kind: 'loading', vehicles: [] });
+    telegramRequest(initData, 'admin-vehicles', { customerId: customer.id }).then(data => {
+      if (active) setState({ kind: 'ready', vehicles: Array.isArray(data.vehicles) ? data.vehicles : [] });
+    }).catch(() => { if (active) setState({ kind: 'error', vehicles: [] }); });
+    return () => { active = false; };
+  }, [initData, customer.id, reload]);
+  const submit = async event => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    setBusy(true); setNotice('');
+    try {
+      const result = await telegramRequest(initData, 'admin-create-vehicle', { customerId: customer.id, vehicle: {
+        make: data.get('make'), model: data.get('model'), plate: data.get('plate'), productionYear: data.get('productionYear'),
+      } });
+      form.reset();
+      setState(current => ({ kind: 'ready', vehicles: [result.vehicle, ...current.vehicles] }));
+      setNotice('Avtomobil qo‘shildi. Keyingi bosqichda unga xizmat yozuvi kiritiladi.');
+    } catch { setNotice('Avtomobilni saqlab bo‘lmadi. Maydonlarni tekshirib, yana urinib ko‘ring.'); }
+    finally { setBusy(false); }
+  };
+  const customerName = [customer.first_name, customer.last_name].filter(Boolean).join(' ');
+  return <section className="vehicle-panel"><div className="customer-context"><Icon name="user" size={20} /><span>Tanlangan mijoz<strong>{customerName}</strong></span></div><form className="admin-form" onSubmit={submit}><h3>Avtomobil qo‘shish</h3><Field label="Markasi" name="make" maxLength="80" placeholder="Chevrolet" /><Field label="Modeli" name="model" required maxLength="100" placeholder="Cobalt" /><Field label="Davlat raqami" name="plate" required maxLength="24" placeholder="01 A 123 BC" /><Field label="Ishlab chiqarilgan yili" name="productionYear" type="number" min="1900" max="2100" inputMode="numeric" placeholder="2022" /><Button busy={busy} type="submit"><Icon name="car" size={20} /> Avtomobil qo‘shish</Button>{notice && <p className="admin-notice" role="status">{notice}</p>}</form><section className="vehicle-list"><div className="customer-list-heading"><h3>Avtomobillar</h3><button className="text-button" type="button" onClick={() => setReload(value => value + 1)}>Yangilash</button></div>{state.kind === 'loading' ? <StateCard kind="loading" title="Avtomobillar yuklanmoqda…" /> : state.kind === 'error' ? <StateCard kind="error" title="Ro‘yxatni yuklab bo‘lmadi" action={<Button secondary onClick={() => setReload(value => value + 1)}>Qayta urinish</Button>} /> : state.vehicles.length === 0 ? <StateCard title="Hali avtomobil yo‘q">Yuqoridagi forma orqali avtomobil qo‘shing.</StateCard> : <ul>{state.vehicles.map(vehicle => <li key={vehicle.id}><Icon name="car" size={23} /><span><strong>{[vehicle.make, vehicle.model].filter(Boolean).join(' ')}</strong><small>{vehicle.plate}{vehicle.production_year || vehicle.productionYear ? ` · ${vehicle.production_year || vehicle.productionYear}` : ''}</small></span></li>)}</ul>}</section></section>;
 }
 
 function Help() {

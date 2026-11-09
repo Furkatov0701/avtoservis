@@ -268,11 +268,41 @@ async function adminCreateCustomer(config, body, fetcher) {
   return { ok: true, customer: { id: customer.id, firstName: customer.first_name, lastName: customer.last_name, phone: customer.phone } };
 }
 
+async function adminVehicles(config, body, fetcher) {
+  await requireAdmin(config, body, fetcher);
+  const customerId = body?.customerId;
+  if (!validUuid(customerId)) throw { status: 400, code: 'invalid_vehicle' };
+  const vehicles = await databaseRequest(config, `/rest/v1/vehicles?customer_id=eq.${encodeURIComponent(customerId)}&select=id,make,model,plate,production_year,created_at&order=created_at.desc`, {
+    method: 'GET', headers: { accept: 'application/json' },
+  }, fetcher);
+  return { ok: true, vehicles: Array.isArray(vehicles) ? vehicles : [] };
+}
+
+async function adminCreateVehicle(config, body, fetcher) {
+  await requireAdmin(config, body, fetcher);
+  const customerId = body?.customerId;
+  const make = cleanText(body?.vehicle?.make, 80);
+  const model = cleanText(body?.vehicle?.model, 100);
+  const plate = cleanText(body?.vehicle?.plate, 24).toUpperCase();
+  const suppliedYear = cleanText(String(body?.vehicle?.productionYear ?? ''), 4);
+  const productionYear = suppliedYear ? Number(suppliedYear) : null;
+  if (!validUuid(customerId) || !model || !plate || (productionYear !== null && (!Number.isInteger(productionYear) || productionYear < 1900 || productionYear > 2100))) throw { status: 400, code: 'invalid_vehicle' };
+  const rows = await databaseRequest(config, '/rest/v1/vehicles', {
+    method: 'POST', headers: { 'content-type': 'application/json', prefer: 'return=representation' },
+    body: JSON.stringify([{ customer_id: customerId, make, model, plate, production_year: productionYear }]),
+  }, fetcher);
+  const vehicle = firstRow(rows);
+  if (!vehicle) throw { status: 502, code: 'database_invalid_response' };
+  return { ok: true, vehicle: { id: vehicle.id, make: vehicle.make, model: vehicle.model, plate: vehicle.plate, productionYear: vehicle.production_year } };
+}
+
 async function miniAppAction(config, body, fetcher) {
   if (!body || typeof body.action !== 'string') throw { status: 400, code: 'invalid_action' };
   if (body.action === 'miniapp-session') return miniAppSession(config, body, fetcher);
   if (body.action === 'admin-dashboard') return adminDashboard(config, body, fetcher);
   if (body.action === 'admin-create-customer') return adminCreateCustomer(config, body, fetcher);
+  if (body.action === 'admin-vehicles') return adminVehicles(config, body, fetcher);
+  if (body.action === 'admin-create-vehicle') return adminCreateVehicle(config, body, fetcher);
   throw { status: 400, code: 'invalid_action' };
 }
 
@@ -303,13 +333,13 @@ export function createEdgeHandler({ env, fetcher = fetch }) {
         return send(200, await setup(config, await readJson(request, 4096), fetcher));
       }
       const body = await readJson(request, 65536);
-      if (['miniapp-session', 'admin-dashboard', 'admin-create-customer'].includes(body?.action)) return send(200, await miniAppAction(config, body, fetcher));
+      if (['miniapp-session', 'admin-dashboard', 'admin-create-customer', 'admin-vehicles', 'admin-create-vehicle'].includes(body?.action)) return send(200, await miniAppAction(config, body, fetcher));
       const webhookSecret = await deriveWebhookSecret(config.token, config.webhookUrl);
       if (!(await matchesSecret(request.headers.get('x-telegram-bot-api-secret-token'), webhookSecret))) return send(401, { error: 'unauthorized' });
       if (!Number.isSafeInteger(body?.update_id) || body.update_id < 0) return send(400, { error: 'invalid_update' });
       return send(200, replyForUpdate(body, config) || { ok: true });
     } catch (error) {
-      const known = ['json_required', 'body_too_large', 'invalid_json', 'invalid_action', 'invalid_customer', 'admin_required', 'telegram_connection_failed', 'telegram_invalid_response', 'telegram_request_failed', 'bot_username_mismatch', 'invalid_init_data', 'telegram_identity_invalid', 'telegram_identity_expired', 'invalid_telegram_user', 'server_database_required', 'database_connection_failed', 'database_request_failed', 'database_invalid_response'];
+      const known = ['json_required', 'body_too_large', 'invalid_json', 'invalid_action', 'invalid_customer', 'invalid_vehicle', 'admin_required', 'telegram_connection_failed', 'telegram_invalid_response', 'telegram_request_failed', 'bot_username_mismatch', 'invalid_init_data', 'telegram_identity_invalid', 'telegram_identity_expired', 'invalid_telegram_user', 'server_database_required', 'database_connection_failed', 'database_request_failed', 'database_invalid_response'];
       if (!known.includes(error?.code)) return send(500, { error: 'internal_error' });
       return send(error.status, { error: error.code, ...(error.stage ? { stage: error.stage } : {}) });
     }

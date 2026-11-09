@@ -191,6 +191,21 @@ test('admin dashboard requires the Telegram profile to be explicitly assigned an
   assert.equal(calls.length, 4);
 });
 
+test('admin vehicle routes validate the selected customer before any database mutation', async () => {
+  const calls = [];
+  const handler = createEdgeHandler({ env: name => ({ ...values, SUPABASE_SERVICE_ROLE_KEY: 'service-role-test-key' })[name], fetcher: async target => {
+    const url = new URL(target); calls.push(url.pathname);
+    if (url.pathname.endsWith('/telegram_profiles')) return new Response('', { status: 201 });
+    if (url.pathname.endsWith('/service_staff')) return json([{ role: 'admin' }]);
+    if (url.pathname.endsWith('/customers')) return json([]);
+    throw new Error('vehicles must not be requested');
+  } });
+  const response = await handler(request({ action: 'admin-create-vehicle', initData: await signedInitData(), customerId: 'not-a-uuid', vehicle: { model: 'Cobalt', plate: '01 A 123 BC' } }));
+  assert.equal(response.status, 400);
+  // The Telegram profile can be verified and updated, but invalid input never reaches vehicles.
+  assert.deepEqual(calls, ['/rest/v1/telegram_profiles', '/rest/v1/customers', '/rest/v1/service_staff']);
+});
+
 test('generated dashboard entry registers a working handler using the Deno adapter', async () => {
   const previous = globalThis.Deno; let registered;
   globalThis.Deno = { env: { get: name => values[name] }, serve: handler => { registered = handler; } };
