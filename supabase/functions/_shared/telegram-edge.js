@@ -132,6 +132,12 @@ function validUuid(value) {
   return typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }
 
+function validDate(value) {
+  return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(`${value}T00:00:00Z`));
+}
+
+const serviceTypes = new Set(['tires', 'engine_oil', 'antifreeze', 'tint']);
+
 async function miniAppActor(config, body, fetcher) {
   const telegram = await verifyMiniAppInitData(body?.initData, config.token);
   const profile = {
@@ -223,6 +229,53 @@ async function adminCreateVehicle(config, body, fetcher) {
   return { ok: true, vehicle: { id: vehicle.id, make: vehicle.make, model: vehicle.model, plate: vehicle.plate, productionYear: vehicle.production_year } };
 }
 
+async function vehicleForAdmin(config, vehicleId, fetcher) {
+  if (!validUuid(vehicleId)) throw { status: 400, code: 'invalid_service_record' };
+  const vehicles = await databaseRequest(config, `/rest/v1/vehicles?id=eq.${encodeURIComponent(vehicleId)}&select=id,customer_id,make,model,plate&limit=1`, {
+    method: 'GET', headers: { accept: 'application/json' },
+  }, fetcher);
+  const vehicle = firstRow(vehicles);
+  if (!vehicle) throw { status: 404, code: 'vehicle_not_found' };
+  return vehicle;
+}
+
+async function adminServiceRecords(config, body, fetcher) {
+  await requireAdmin(config, body, fetcher);
+  const vehicle = await vehicleForAdmin(config, body?.vehicleId, fetcher);
+  const records = await databaseRequest(config, `/rest/v1/service_records?vehicle_id=eq.${encodeURIComponent(vehicle.id)}&select=id,service_type,performed_on,next_due_on,odometer_km,notes,tire_positions,created_at&order=performed_on.desc,created_at.desc`, {
+    method: 'GET', headers: { accept: 'application/json' },
+  }, fetcher);
+  return { ok: true, vehicle, records: Array.isArray(records) ? records : [] };
+}
+
+async function adminCreateServiceRecord(config, body, fetcher) {
+  await requireAdmin(config, body, fetcher);
+  const vehicle = await vehicleForAdmin(config, body?.vehicleId, fetcher);
+  const serviceType = cleanText(body?.record?.serviceType, 32);
+  const performedOn = cleanText(body?.record?.performedOn, 10);
+  const nextDueOn = cleanText(body?.record?.nextDueOn, 10) || null;
+  const notes = cleanText(body?.record?.notes, 2000);
+  const odometerText = cleanText(String(body?.record?.odometerKm ?? ''), 12);
+  const odometerKm = odometerText ? Number(odometerText) : null;
+  if (!serviceTypes.has(serviceType) || !validDate(performedOn) || (nextDueOn && (!validDate(nextDueOn) || nextDueOn < performedOn)) || (odometerKm !== null && (!Number.isInteger(odometerKm) || odometerKm < 0))) throw { status: 400, code: 'invalid_service_record' };
+  const rows = await databaseRequest(config, '/rest/v1/service_records', {
+    method: 'POST', headers: { 'content-type': 'application/json', prefer: 'return=representation' },
+    body: JSON.stringify([{ vehicle_id: vehicle.id, service_type: serviceType, performed_on: performedOn, next_due_on: nextDueOn, odometer_km: odometerKm, notes }]),
+  }, fetcher);
+  const record = firstRow(rows);
+  if (!record) throw { status: 502, code: 'database_invalid_response' };
+  return { ok: true, record };
+}
+
+async function customerVehicles(config, body, fetcher) {
+  const actor = await miniAppActor(config, body, fetcher);
+  if (!actor.customer) return { ok: true, account: 'unlinked', vehicles: [] };
+  const vehicles = await databaseRequest(config, `/rest/v1/vehicles?customer_id=eq.${encodeURIComponent(actor.customer.id)}&select=id,make,model,plate,production_year,service_records(id,service_type,performed_on,next_due_on,odometer_km,notes)&order=created_at.desc`, {
+    method: 'GET', headers: { accept: 'application/json' },
+  }, fetcher);
+  return { ok: true, account: 'ready', vehicles: Array.isArray(vehicles) ? vehicles : [] };
+}
+
 async function miniAppAction(config, body, fetcher) {
   if (!body || typeof body.action !== 'string') throw { status: 400, code: 'invalid_action' };
   if (body.action === 'miniapp-session') return miniAppSession(config, body, fetcher);
@@ -230,6 +283,9 @@ async function miniAppAction(config, body, fetcher) {
   if (body.action === 'admin-create-customer') return adminCreateCustomer(config, body, fetcher);
   if (body.action === 'admin-vehicles') return adminVehicles(config, body, fetcher);
   if (body.action === 'admin-create-vehicle') return adminCreateVehicle(config, body, fetcher);
+  if (body.action === 'admin-service-records') return adminServiceRecords(config, body, fetcher);
+  if (body.action === 'admin-create-service-record') return adminCreateServiceRecord(config, body, fetcher);
+  if (body.action === 'customer-vehicles') return customerVehicles(config, body, fetcher);
   throw { status: 400, code: 'invalid_action' };
 }
 
@@ -260,13 +316,13 @@ export function createEdgeHandler({ env, fetcher = fetch }) {
         return send(200, await setup(config, await readJson(request, 4096), fetcher));
       }
       const body = await readJson(request, 65536);
-      if (['miniapp-session', 'admin-dashboard', 'admin-create-customer', 'admin-vehicles', 'admin-create-vehicle'].includes(body?.action)) return send(200, await miniAppAction(config, body, fetcher));
+      if (['miniapp-session', 'admin-dashboard', 'admin-create-customer', 'admin-vehicles', 'admin-create-vehicle', 'admin-service-records', 'admin-create-service-record', 'customer-vehicles'].includes(body?.action)) return send(200, await miniAppAction(config, body, fetcher));
       const webhookSecret = await deriveWebhookSecret(config.token, config.webhookUrl);
       if (!(await matchesSecret(request.headers.get('x-telegram-bot-api-secret-token'), webhookSecret))) return send(401, { error: 'unauthorized' });
       if (!Number.isSafeInteger(body?.update_id) || body.update_id < 0) return send(400, { error: 'invalid_update' });
       return send(200, replyForUpdate(body, config) || { ok: true });
     } catch (error) {
-      const known = ['json_required', 'body_too_large', 'invalid_json', 'invalid_action', 'invalid_customer', 'invalid_vehicle', 'admin_required', 'telegram_connection_failed', 'telegram_invalid_response', 'telegram_request_failed', 'bot_username_mismatch', 'invalid_init_data', 'telegram_identity_invalid', 'telegram_identity_expired', 'invalid_telegram_user', 'server_database_required', 'database_connection_failed', 'database_request_failed', 'database_invalid_response'];
+    const known = ['json_required', 'body_too_large', 'invalid_json', 'invalid_action', 'invalid_customer', 'invalid_vehicle', 'invalid_service_record', 'vehicle_not_found', 'admin_required', 'telegram_connection_failed', 'telegram_invalid_response', 'telegram_request_failed', 'bot_username_mismatch', 'invalid_init_data', 'telegram_identity_invalid', 'telegram_identity_expired', 'invalid_telegram_user', 'server_database_required', 'database_connection_failed', 'database_request_failed', 'database_invalid_response'];
       if (!known.includes(error?.code)) return send(500, { error: 'internal_error' });
       return send(error.status, { error: error.code, ...(error.stage ? { stage: error.stage } : {}) });
     }

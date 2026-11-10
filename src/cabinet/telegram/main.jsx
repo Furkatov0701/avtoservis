@@ -60,7 +60,7 @@ function Welcome() {
   }, [status, app, attempt]);
   const name = session.data?.profile?.firstName || 'siz';
   return <section className="telegram-welcome"><span className="telegram-emblem"><Icon name="car" size={76} /></span><h1>Avto kabinetingiz</h1><p>Avtomobillaringiz va xizmatlar tarixi — Telegram ichida.</p>
-    {status === 'outside' ? <StateCard title="Telegram orqali oching" action={configuredBotLink ? <a className="button-primary" href={configuredBotLink} rel="noopener noreferrer">Telegram botni ochish</a> : null}>Servis botidagi «Kabinetni ochish» tugmasidan foydalaning.</StateCard> : session.state === 'loading' || session.state === 'idle' ? <StateCard kind="loading" title="Profil tekshirilmoqda…">Telegram hisobingiz xavfsiz tekshirilmoqda.</StateCard> : session.state === 'error' ? <StateCard kind="error" title="Profilni ulab bo‘lmadi" action={<Button secondary onClick={() => setAttempt(value => value + 1)}>Qayta urinish</Button>}>Aloqani tekshirib, yana urinib ko‘ring.</StateCard> : session.data.role === 'admin' ? <AdminPanel initData={app?.initData} name={name} /> : session.data.account === 'unlinked' ? <StateCard title={`Xush kelibsiz, ${name}`} >Telegram profilingiz ulandi. Servis administratori sizni mijoz kartangizga bog‘lagach, avtomobillaringiz va xizmatlar tarixi shu yerda ko‘rinadi.</StateCard> : <StateCard title={`Xush kelibsiz, ${name}`}>Mijoz kartangiz ulandi. Avtomobillaringiz va xizmatlar tarixi keyingi ekranda ko‘rinadi.</StateCard>}
+    {status === 'outside' ? <StateCard title="Telegram orqali oching" action={configuredBotLink ? <a className="button-primary" href={configuredBotLink} rel="noopener noreferrer">Telegram botni ochish</a> : null}>Servis botidagi «Kabinetni ochish» tugmasidan foydalaning.</StateCard> : session.state === 'loading' || session.state === 'idle' ? <StateCard kind="loading" title="Profil tekshirilmoqda…">Telegram hisobingiz xavfsiz tekshirilmoqda.</StateCard> : session.state === 'error' ? <StateCard kind="error" title="Profilni ulab bo‘lmadi" action={<Button secondary onClick={() => setAttempt(value => value + 1)}>Qayta urinish</Button>}>Aloqani tekshirib, yana urinib ko‘ring.</StateCard> : session.data.role === 'admin' ? <AdminPanel initData={app?.initData} name={name} /> : session.data.account === 'unlinked' ? <StateCard title={`Xush kelibsiz, ${name}`} >Telegram profilingiz ulandi. Servis administratori sizni mijoz kartangizga bog‘lagach, avtomobillaringiz va xizmatlar tarixi shu yerda ko‘rinadi.</StateCard> : <CustomerPanel initData={app?.initData} name={name} />}
   </section>;
 }
 
@@ -102,6 +102,7 @@ function VehiclePanel({ initData, customer }) {
   const [reload, setReload] = useState(0);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
+  const [selected, setSelected] = useState(null);
   useEffect(() => {
     let active = true;
     setState({ kind: 'loading', vehicles: [] });
@@ -121,12 +122,40 @@ function VehiclePanel({ initData, customer }) {
       } });
       form.reset();
       setState(current => ({ kind: 'ready', vehicles: [result.vehicle, ...current.vehicles] }));
-      setNotice('Avtomobil qo‘shildi. Keyingi bosqichda unga xizmat yozuvi kiritiladi.');
+      setNotice('Avtomobil qo‘shildi. Endi unga xizmat yozuvi kiritish mumkin.');
     } catch { setNotice('Avtomobilni saqlab bo‘lmadi. Maydonlarni tekshirib, yana urinib ko‘ring.'); }
     finally { setBusy(false); }
   };
   const customerName = [customer.first_name, customer.last_name].filter(Boolean).join(' ');
-  return <section className="vehicle-panel"><div className="customer-context"><Icon name="user" size={20} /><span>Tanlangan mijoz<strong>{customerName}</strong></span></div><form className="admin-form" onSubmit={submit}><h3>Avtomobil qo‘shish</h3><Field label="Markasi" name="make" maxLength="80" placeholder="Chevrolet" /><Field label="Modeli" name="model" required maxLength="100" placeholder="Cobalt" /><Field label="Davlat raqami" name="plate" required maxLength="24" placeholder="01 A 123 BC" /><Field label="Ishlab chiqarilgan yili" name="productionYear" type="number" min="1900" max="2100" inputMode="numeric" placeholder="2022" /><Button busy={busy} type="submit"><Icon name="car" size={20} /> Avtomobil qo‘shish</Button>{notice && <p className="admin-notice" role="status">{notice}</p>}</form><section className="vehicle-list"><div className="customer-list-heading"><h3>Avtomobillar</h3><button className="text-button" type="button" onClick={() => setReload(value => value + 1)}>Yangilash</button></div>{state.kind === 'loading' ? <StateCard kind="loading" title="Avtomobillar yuklanmoqda…" /> : state.kind === 'error' ? <StateCard kind="error" title="Ro‘yxatni yuklab bo‘lmadi" action={<Button secondary onClick={() => setReload(value => value + 1)}>Qayta urinish</Button>} /> : state.vehicles.length === 0 ? <StateCard title="Hali avtomobil yo‘q">Yuqoridagi forma orqali avtomobil qo‘shing.</StateCard> : <ul>{state.vehicles.map(vehicle => <li key={vehicle.id}><Icon name="car" size={23} /><span><strong>{[vehicle.make, vehicle.model].filter(Boolean).join(' ')}</strong><small>{vehicle.plate}{vehicle.production_year || vehicle.productionYear ? ` · ${vehicle.production_year || vehicle.productionYear}` : ''}</small></span></li>)}</ul>}</section></section>;
+  return <section className="vehicle-panel"><div className="customer-context"><Icon name="user" size={20} /><span>Tanlangan mijoz<strong>{customerName}</strong></span></div><form className="admin-form" onSubmit={submit}><h3>Avtomobil qo‘shish</h3><Field label="Markasi" name="make" maxLength="80" placeholder="Chevrolet" /><Field label="Modeli" name="model" required maxLength="100" placeholder="Cobalt" /><Field label="Davlat raqami" name="plate" required maxLength="24" placeholder="01 A 123 BC" /><Field label="Ishlab chiqarilgan yili" name="productionYear" type="number" min="1900" max="2100" inputMode="numeric" placeholder="2022" /><Button busy={busy} type="submit"><Icon name="car" size={20} /> Avtomobil qo‘shish</Button>{notice && <p className="admin-notice" role="status">{notice}</p>}</form><section className="vehicle-list"><div className="customer-list-heading"><h3>Avtomobillar</h3><button className="text-button" type="button" onClick={() => setReload(value => value + 1)}>Yangilash</button></div>{state.kind === 'loading' ? <StateCard kind="loading" title="Avtomobillar yuklanmoqda…" /> : state.kind === 'error' ? <StateCard kind="error" title="Ro‘yxatni yuklab bo‘lmadi" action={<Button secondary onClick={() => setReload(value => value + 1)}>Qayta urinish</Button>} /> : state.vehicles.length === 0 ? <StateCard title="Hali avtomobil yo‘q">Yuqoridagi forma orqali avtomobil qo‘shing.</StateCard> : <ul>{state.vehicles.map(vehicle => <li key={vehicle.id}><button className="customer-button" type="button" onClick={() => setSelected(vehicle)}><Icon name="car" size={23} /><span><strong>{[vehicle.make, vehicle.model].filter(Boolean).join(' ')}</strong><small>{vehicle.plate}{vehicle.production_year || vehicle.productionYear ? ` · ${vehicle.production_year || vehicle.productionYear}` : ''}</small></span><Icon name="right" size={19} /></button></li>)}</ul>}</section>{selected && <ServicePanel initData={initData} vehicle={selected} />}</section>;
+}
+
+const serviceNames = { tires: 'Balonlar', engine_oil: 'Motor moyi', antifreeze: 'Antifriz', tint: 'Tonirovka' };
+
+function ServicePanel({ initData, vehicle }) {
+  const [records, setRecords] = useState([]);
+  const [state, setState] = useState('loading');
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState('');
+  const load = () => { setState('loading'); telegramRequest(initData, 'admin-service-records', { vehicleId: vehicle.id }).then(data => { setRecords(data.records || []); setState('ready'); }).catch(() => setState('error')); };
+  useEffect(load, [initData, vehicle.id]);
+  const submit = async event => { event.preventDefault(); const form = event.currentTarget; const data = new FormData(form); setBusy(true); setNotice(''); try { const result = await telegramRequest(initData, 'admin-create-service-record', { vehicleId: vehicle.id, record: { serviceType: data.get('serviceType'), performedOn: data.get('performedOn'), nextDueOn: data.get('nextDueOn'), odometerKm: data.get('odometerKm'), notes: data.get('notes') } }); setRecords(current => [result.record, ...current]); form.reset(); setNotice('Xizmat yozuvi saqlandi.'); } catch { setNotice('Xizmat yozuvini saqlab bo‘lmadi.'); } finally { setBusy(false); } };
+  return <section className="vehicle-panel"><div className="customer-context"><Icon name="car" size={20} /><span>Tanlangan avtomobil<strong>{[vehicle.make, vehicle.model].filter(Boolean).join(' ')} · {vehicle.plate}</strong></span></div><form className="admin-form" onSubmit={submit}><h3>Xizmat yozuvi</h3><label className="field"><span>Xizmat turi</span><select name="serviceType" required defaultValue=""><option value="" disabled>Tanlang</option>{Object.entries(serviceNames).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><Field label="Bajarilgan sana" name="performedOn" type="date" required /><Field label="Keyingi tavsiya etilgan sana" name="nextDueOn" type="date" /><Field label="Kilometr" name="odometerKm" type="number" min="0" inputMode="numeric" /><label className="field"><span>Izoh</span><textarea name="notes" maxLength="2000" rows="3" /></label><Button busy={busy} type="submit">Xizmatni saqlash</Button>{notice && <p className="admin-notice" role="status">{notice}</p>}</form><RecordList records={records} state={state} retry={load} /></section>;
+}
+
+function RecordList({ records, state, retry }) {
+  if (state === 'loading') return <StateCard kind="loading" title="Xizmatlar yuklanmoqda…" />;
+  if (state === 'error') return <StateCard kind="error" title="Xizmatlar yuklanmadi" action={<Button secondary onClick={retry}>Qayta urinish</Button>} />;
+  if (!records.length) return <StateCard title="Hali xizmat yozuvi yo‘q" />;
+  return <section className="vehicle-list"><h3>Xizmat tarixi</h3><ul>{records.map(record => <li key={record.id}><Icon name="car" size={23} /><span><strong>{serviceNames[record.service_type] || record.service_type} · {record.performed_on}</strong><small>{record.next_due_on ? `Keyingi sana: ${record.next_due_on}` : 'Keyingi sana ko‘rsatilmagan'}{record.odometer_km ? ` · ${record.odometer_km} km` : ''}</small></span></li>)}</ul></section>;
+}
+
+function CustomerPanel({ initData, name }) {
+  const [state, setState] = useState('loading');
+  const [vehicles, setVehicles] = useState([]);
+  const load = () => { setState('loading'); telegramRequest(initData, 'customer-vehicles').then(data => { setVehicles(data.vehicles || []); setState('ready'); }).catch(() => setState('error')); };
+  useEffect(load, [initData]);
+  return <section className="telegram-welcome"><span className="telegram-emblem"><Icon name="car" size={76} /></span><h1>Xush kelibsiz, {name}</h1><p>Avtomobillaringiz va xizmatlar tarixi.</p>{state === 'loading' ? <StateCard kind="loading" title="Ma’lumotlar yuklanmoqda…" /> : state === 'error' ? <StateCard kind="error" title="Ma’lumotlarni yuklab bo‘lmadi" action={<Button secondary onClick={load}>Qayta urinish</Button>} /> : !vehicles.length ? <StateCard title="Hali avtomobil yo‘q">Servis administratori avtomobilingizni biriktirgach, u shu yerda ko‘rinadi.</StateCard> : vehicles.map(vehicle => <section className="vehicle-panel" key={vehicle.id}><div className="customer-context"><Icon name="car" size={20} /><span>Avtomobil<strong>{[vehicle.make, vehicle.model].filter(Boolean).join(' ')} · {vehicle.plate}</strong></span></div><RecordList records={vehicle.service_records || []} state="ready" retry={load} /></section>)}</section>;
 }
 
 function Help() {
