@@ -10,6 +10,15 @@
 .telegram-brand { flex: 1; font-size: 24px; letter-spacing: -.8px; }
 .telegram-help { min-height: 44px; min-width: 44px; display: inline-flex; align-items: center; justify-content: center; padding: 8px; color: var(--color-brand); }
 .telegram-content { margin-top: 30px; }
+.app-screen { padding-bottom: 92px; }
+.bottom-nav { position: fixed; z-index: 5; left: 50%; bottom: calc(10px + max(env(safe-area-inset-bottom, 0px), var(--avto-safe-bottom, 0px))); transform: translateX(-50%); display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); width: min(calc(100% - 24px), 460px); padding: 7px; border: 1px solid var(--color-border); border-radius: 18px; background: color-mix(in srgb, var(--color-surface) 94%, transparent); box-shadow: 0 12px 28px rgb(35 83 71 / .16); backdrop-filter: blur(14px); }
+.bottom-nav button { min-width: 0; min-height: 48px; display: grid; place-items: center; gap: 2px; border: 0; border-radius: 12px; color: var(--color-muted); background: transparent; font: inherit; font-size: 10px; font-weight: 700; }
+.bottom-nav button.active { color: var(--color-brand); background: var(--color-cream); }
+.promo-card { display: grid; gap: 8px; min-height: 132px; padding: 24px; border-radius: 22px; color: var(--color-brand); background: linear-gradient(135deg, #f2e6d6, #fff 72%); border: 1px solid var(--color-border); box-shadow: var(--shadow-card); font-size: 22px; }
+.promo-card span { font-weight: 900; }
+.quick-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-top: 18px; }
+.quick-grid button { min-height: 112px; display: grid; place-items: center; align-content: center; gap: 10px; border: 1px solid var(--color-border); border-radius: 18px; color: var(--color-brand); background: var(--color-surface); box-shadow: var(--shadow-card); font: inherit; font-weight: 800; }
+.quick-grid .service-svg { width: 30px; height: 30px; }
 .telegram-welcome { text-align: center; }
 .telegram-emblem { display: inline-flex; justify-content: center; align-items: center; width: 112px; height: 112px; border-radius: 28px; background: var(--color-cream); margin: 12px 0 22px; color: var(--color-brand); }
 .telegram-welcome h1, .telegram-guide h1 { font-size: 28px; line-height: 1.15; }
