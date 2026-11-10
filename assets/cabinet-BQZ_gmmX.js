@@ -1,0 +1,2 @@
+const __vite__mapDeps=(i,m=__vite__mapDeps,d=(m.f||(m.f=["./main-Ss-0brIe.js","./main-CMCyomY-.css"])))=>i.map(i=>d[i]);
+import{_ as o}from"./preload-helper-DMGCcr4D.js";const a=o(()=>import("./main-Ss-0brIe.js"),__vite__mapDeps([0,1]),import.meta.url).then(t=>t.startTelegram());a.catch(()=>{document.getElementById("root").textContent="Ilovani ochib bo‘lmadi. Sahifani yangilab, qayta urinib ko‘ring."});
