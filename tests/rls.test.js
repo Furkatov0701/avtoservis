@@ -42,3 +42,21 @@ test('PostgreSQL profile policies isolate accounts and deny client privilege esc
     assert.deepEqual((await asUser('select id from profiles')).rows, [{ id: owner }]);
   } finally { await db.close(); }
 });
+
+test('phone_normalized matches differently typed numbers without changing stored customer data', async () => {
+  const db = new PGlite();
+  try {
+    await db.exec('create role anon; create role authenticated; create role service_role bypassrls;');
+    for (const file of ['202611080001_telegram_customers_and_service_records.sql', '202611080002_service_staff.sql', '202611110001_customer_phone_link.sql']) {
+      // PGlite has gen_random_uuid() built in but cannot load the pgcrypto extension.
+      await db.exec((await readFile(new URL(`../supabase/migrations/${file}`, import.meta.url), 'utf8')).replace('create extension if not exists pgcrypto;', ''));
+    }
+    await db.exec(`insert into customers(first_name, phone) values ('A', '+998 (90) 123-45-67'), ('B', '90 123 45 67'), ('C', '998931112233'), ('D', '')`);
+    const rows = (await db.query('select first_name, phone, phone_normalized from customers order by first_name')).rows;
+    assert.deepEqual(rows.map(row => row.phone_normalized), ['998901234567', '998901234567', '998931112233', '']);
+    assert.equal(rows[0].phone, '+998 (90) 123-45-67');
+    await assert.rejects(db.exec(`update customers set phone_normalized = 'x'`), /can only be updated to DEFAULT|generated/);
+    await db.exec(`update customers set phone = '+998 97 000 11 22' where first_name = 'D'`);
+    assert.equal((await db.query(`select phone_normalized from customers where first_name = 'D'`)).rows[0].phone_normalized, '998970001122');
+  } finally { await db.close(); }
+});

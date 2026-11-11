@@ -31,13 +31,22 @@ O‘zbek tilidagi avtoservis loyihasi: ommaviy 3D landing sahifa, Telegram Mini 
 
 ### Telegram Mini App
 
-- Telegram ichida `initData` serverda tekshiriladi; frontenddagi user metadata hech qachon rol yoki vakolat bermaydi.
-- Admin menyusi: **Bosh**, **Mijozlar**, **Mashinalar**, **Bo‘limlar**, **Profil**.
-- User menyusi: **Mashinalar**, **Xizmatlar**, **Profil**.
-- Admin mijoz qidiradi, yangi mijoz yaratadi, mijozga avtomobil biriktiradi va xizmat yozuvini saqlaydi.
-- Xizmat yozuvi: Balonlar, Motor moyi, Antifriz yoki Tonirovka; bajarilgan va keyingi sana, kilometr hamda izoh.
-- User o‘z avtomobillari va tarixini ko‘radi; xizmat kartasi tanlansa tarix shu kategoriya bo‘yicha filtrlanadi.
-- Mobil safe-area, Telegram viewport, BackButton va ilova ichidagi ko‘rinadigan orqaga qaytish tugmasi mavjud.
+Dizayn: **Petrol Teal + Sand** (A variant joylashuvi). Fon — qumrang `#f7f3eb`, asosiy rang — petrol teal `#1b5058`, urg‘u — qum `#d9b886`. Muddat ranglari: yashil (vaqt bor), oxra (14 kun va kamroq qoldi), terrakota (o‘tdi). Manrope shrifti, yozuvli 5 ta pastki menyu, yuqorida ← / Admin·User / ism harflari avatari.
+
+- Har bir xizmatda progress chiziq, “N kun qoldi / N kun kechikdi” va rangli belgi.
+- Mijoz bosh sahifasi: mashina kartasi (km · yil · raqam), muddati o‘tgan xizmat ogohlantirishi, yaqin xizmatlar.
+- Admin bosh sahifasi: aksiya, statistika (mijozlar / bu hafta / o‘tgan) va “Qo‘ng‘iroq qilish kerak” ro‘yxati (`admin-overview`).
+- Balonlar mashina sxemasida, har bir g‘ildirak o‘z holati bilan; xizmat sahifasida keyingi sana kartasi va tarix.
+
+- Kirish faqat Telegram orqali, parol yo‘q. Telegram ichida `initData` serverda tekshiriladi; frontenddagi user metadata hech qachon rol bermaydi.
+- **Mijozni bog‘lash:** admin mijozni ism, familiya va telefon bilan qo‘shadi. Mijoz Mini App’ni birinchi ochganda «Akkaunt yaratish» ekranida telefonini Telegram orqali ulashadi; bot webhook’i kontakt aynan shu foydalanuvchiniki ekanini (`contact.user_id === from.id`) tekshirib, kartani bog‘laydi. Mos karta bo‘lmasa yangi mijoz kartasi yaratiladi. Boshqa akkauntga bog‘langan kartani hech kim egallay olmaydi.
+- Admin menyusi: Bosh (aksiya), Mashinalar, Mijozlar, Bo‘limlar, Sozlamalar.
+- User menyusi: Bosh (yaqin xizmat sanalari), Mashinalar, Profil, Bo‘limlar, Sozlamalar. Mijozlar ro‘yxati faqat adminga ko‘rinadi.
+- Mijozlar: raqamlangan jadval, «Ko‘rish», «Yana....», qidiruv, yashil «+» → Mijoz qo‘shish.
+- Mashinalar: 2 ustunli kartalar, `30 │ UUU111 │ UZ` raqam belgisi; admin uchun yashil «+» → Mashina qo‘shish.
+- Bo‘limlar: har bir xizmat keyingi sana, progress va holat bilan.
+- Xizmat ekrani: dropdown, keyingi sana kartasi, «MAY 1 - NOYABR 10» ko‘rinishidagi tarix; Balonlar uchun 4 g‘ildirakning alohida sanasi. Admin «Yozuv qo‘shish» orqali yozuv kiritadi.
+- Profil: ism, mashina va raqam, telefon, Tahrirlash (ism/familiya; telefon faqat Telegram kontakti orqali yangilanadi), Chiqish (Mini App’ni yopadi).
 
 ### Supabase
 
@@ -47,7 +56,9 @@ Migratsiyalar quyidagi jadvallarni yaratadi:
 - `service_staff` — admin roli faqat shu jadval orqali belgilanadi
 - `customers`
 - `vehicles`
-- `service_records`
+- `service_records` — `tire_positions` ustunida har bir g‘ildirakning keyingi sanasi
+
+`202611110001_customer_phone_link.sql` mijozlarga faqat o‘qiladigan `phone_normalized` ustunini qo‘shadi (turli formatda yozilgan raqamlarni moslash uchun). Mavjud ma’lumot o‘zgartirilmaydi.
 
 Jadvallar RLS bilan yoqilgan. Brauzer ular bilan bevosita ishlamaydi; Edge Function serverdagi `SUPABASE_SERVICE_ROLE_KEY` orqali, Telegram identifikatsiyasi tekshirilgandan keyin murojaat qiladi.
 
@@ -119,10 +130,14 @@ Testlar Telegram initData tekshiruvi, Edge Function xavfsizligi, admin ruxsatlar
 - `docs/qarorlar.md` — biznes/dizayn qarorlari tarixi.
 - `docs/supabase-telegram-deploy.md` — Supabase deploy yo‘riqnomasi.
 
+## Yangilanishni ishga tushirish tartibi (2026-11-11)
+
+1. Supabase → SQL Editor’da `supabase/migrations/202611110001_customer_phone_link.sql`ni bajaring. **Bu birinchi bo‘lishi shart**: yangi Edge Function shu ustunga tayanadi.
+2. `supabase/dashboard/telegram-bot.ts`ni `telegram-bot` funksiyasiga qo‘yib Deploy qiling.
+3. `npm run build:telegram` buildini GitHub Pages’ga nashr qiling.
+
 ## Qolgan rivojlantirish ishlari
 
-- Maketga yanada yaqin avtomobil va xizmat tafsiloti kartalari.
-- Balonlarning old chap, old o‘ng, orqa chap, orqa o‘ng holati.
 - Xizmat yozuvini tahrirlash va arxivlash.
-- Profil tahriri uchun kelishilgan Telegram-ga mos oqim.
 - Keyingi xizmat sanasi bo‘yicha Telegram eslatmalari.
+- Admin uchun mijoz kartasini tahrirlash.

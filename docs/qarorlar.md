@@ -1,5 +1,24 @@
 # Avto ilovasi — qarorlar va bosqichlar
 
+## Petrol Teal + Sand dizayni — 2026-11-11
+
+- Foydalanuvchi 3 ta joylashuv variantidan A (“Yashil Pro”) ni, so‘ng 11 ta rang kombinatsiyasidan **Petrol Teal + Sand** ni tanladi (“juda xira ham, juda to‘q ham bo‘lmasin”).
+- Qo‘shildi: muddat holati (yashil / oxra ≤14 kun / terrakota o‘tgan), progress chiziq, mashina kartasi, muddati o‘tgan ogohlantirish, menyu yozuvlari, ism harflari avatari, balonlar mashina sxemasida, xizmat tarixi, admin statistikasi va “Qo‘ng‘iroq qilish kerak” ro‘yxati.
+- Admin statistikasi uchun yangi `admin-overview` amali: har mashina va xizmatning faqat eng so‘nggi yozuvi hisoblanadi; “bu hafta” — 0–7 kun, sana O‘zbekiston vaqti (UTC+5) bo‘yicha.
+- Sozlamalardagi “Eslatmalar” tugmasi maketda bor edi, lekin bot eslatma yubormaguncha qo‘yilmadi (ishlamaydigan tugma bo‘lmasligi uchun).
+- Barcha ranglar WCAG AA (4.5+) bo‘yicha tekshirildi.
+
+## YASHIL dizayn va mijozni bog‘lash — 2026-11-11
+
+- Foydalanuvchi AVTO — YASHIL dizaynini (16 ekran) tasdiqladi; Mini App unga moslab qayta yozildi.
+- Dizayndagi parolli kirish/ro‘yxatdan o‘tish ekranlari qilinmadi: kirish Telegram orqali. «Akkaunt yaratish (User)» parolsiz — telefon Telegram kontakti orqali ulashiladi.
+- Mijozni bog‘lash: admin telefon bilan qo‘shadi (telefon majburiy, `+998XXXXXXXXX` formatida saqlanadi, takrorlansa rad etiladi); bot webhook’i faqat egasining o‘z kontaktini qabul qiladi va bo‘sh kartani atomar bog‘laydi.
+- «25 SEN» — xizmatning keyingi almashtirish sanasi (eng so‘nggi yozuvdagi `next_due_on`).
+- Mashinalar sahifasida yashil «+» (mijozlardagi kabi). Mijozlar ro‘yxati faqat adminga. User menyusida 👥 = Profil, ⚙️ = Sozlamalar.
+- User bosh sahifasida soxta aksiya o‘rniga haqiqiy yaqin xizmat sanalari ko‘rsatiladi; aksiya kartasi faqat adminda (dizayndagidek).
+- Matnlar to‘g‘ri imloda: «MOTOR MOYI», «ANTIFRIZ» (dizaynda «Mator», «Antifris»).
+- Tekshiruv: 33 Node, 10 Telegram, 7 UI, 7 Auth testi o‘tdi; preview va Telegram buildlari, `check:edge` o‘tdi.
+
 ## Joriy bosqich — Telegram Mini App, 2026-11-08
 
 Foydalanuvchi Telegram bot orqali ochiladigan Mini App va Telegram akkaunti

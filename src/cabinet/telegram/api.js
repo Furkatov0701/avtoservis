@@ -21,7 +21,12 @@ export async function telegramRequest(initData, action, data = {}, fetcher = fet
   } catch { throw new Error('telegram_request_unavailable'); }
   let payload;
   try { payload = await response.json(); } catch { throw new Error('telegram_request_unavailable'); }
-  if (!response.ok || payload?.ok !== true) throw new Error('telegram_request_unavailable');
+  if (!response.ok || payload?.ok !== true) {
+    // The message stays generic; the server's error code lets screens show a precise hint.
+    const error = new Error('telegram_request_unavailable');
+    error.code = typeof payload?.error === 'string' ? payload.error : 'request_failed';
+    throw error;
+  }
   return payload;
 }
 

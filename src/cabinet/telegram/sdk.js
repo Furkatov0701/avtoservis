@@ -46,8 +46,8 @@ export function mountTelegramViewport(app, style = document.documentElement.styl
   app.ready?.();
   app.expand?.();
   if (app.isVersionAtLeast?.('6.1')) {
-    app.setHeaderColor?.('#ffffff');
-    app.setBackgroundColor?.('#ffffff');
+    app.setHeaderColor?.('#f7f3eb');
+    app.setBackgroundColor?.('#f7f3eb');
   }
   return () => {
     events.forEach(event => app.offEvent?.(event, update));

@@ -137,6 +137,21 @@ function validDate(value) {
 }
 
 const serviceTypes = new Set(['tires', 'engine_oil', 'antifreeze', 'tint']);
+const tirePositionKeys = ['front_left', 'front_right', 'rear_left', 'rear_right'];
+const readHeaders = { accept: 'application/json' };
+const writeJson = { 'content-type': 'application/json', prefer: 'return=representation' };
+
+// Uzbek mobile numbers only. Returns the 12 digits used for matching
+// (customers.phone_normalized) and the canonical value stored in customers.phone.
+export function normalizeUzPhone(value) {
+  const digits = typeof value === 'string' ? value.replace(/\D/g, '') : '';
+  const full = /^\d{9}$/.test(digits) ? `998${digits}` : digits;
+  return /^998\d{9}$/.test(full) ? { digits: full, phone: `+${full}` } : null;
+}
+
+function customerView(row) {
+  return { id: row.id, firstName: row.first_name, lastName: row.last_name, phone: row.phone };
+}
 
 async function miniAppActor(config, body, fetcher) {
   const telegram = await verifyMiniAppInitData(body?.initData, config.token);
@@ -150,7 +165,7 @@ async function miniAppActor(config, body, fetcher) {
   await databaseRequest(config, '/rest/v1/telegram_profiles?on_conflict=telegram_user_id', {
     method: 'POST', headers: { 'content-type': 'application/json', prefer: 'resolution=merge-duplicates,return=minimal' }, body: JSON.stringify([profile]),
   }, fetcher);
-  const customers = await databaseRequest(config, `/rest/v1/customers?telegram_user_id=eq.${encodeURIComponent(String(telegram.telegramUserId))}&select=id,first_name,last_name&limit=1`, {
+  const customers = await databaseRequest(config, `/rest/v1/customers?telegram_user_id=eq.${encodeURIComponent(String(telegram.telegramUserId))}&select=id,first_name,last_name,phone&limit=1`, {
     method: 'GET', headers: { accept: 'application/json' },
   }, fetcher);
   const staff = await databaseRequest(config, `/rest/v1/service_staff?telegram_user_id=eq.${encodeURIComponent(String(telegram.telegramUserId))}&select=role&limit=1`, {
@@ -168,8 +183,23 @@ async function miniAppSession(config, body, fetcher) {
     account: customer ? 'ready' : 'unlinked',
     role,
     profile: { firstName: telegram.firstName, lastName: telegram.lastName, username: telegram.username },
-    customer: customer ? { id: customer.id, firstName: customer.first_name, lastName: customer.last_name } : null,
+    customer: customer ? customerView(customer) : null,
   };
+}
+
+async function customerUpdateProfile(config, body, fetcher) {
+  const actor = await miniAppActor(config, body, fetcher);
+  if (!actor.customer) throw { status: 403, code: 'customer_required' };
+  const firstName = cleanText(body?.profile?.firstName, 80);
+  const lastName = cleanText(body?.profile?.lastName, 80);
+  if (!firstName) throw { status: 400, code: 'invalid_profile' };
+  // The phone number is not editable here: it changes only through a verified Telegram contact.
+  const rows = await databaseRequest(config, `/rest/v1/customers?id=eq.${encodeURIComponent(actor.customer.id)}`, {
+    method: 'PATCH', headers: writeJson, body: JSON.stringify({ first_name: firstName, last_name: lastName }),
+  }, fetcher);
+  const customer = firstRow(rows);
+  if (!customer) throw { status: 502, code: 'database_invalid_response' };
+  return { ok: true, customer: customerView(customer) };
 }
 
 async function requireAdmin(config, body, fetcher) {
@@ -180,35 +210,80 @@ async function requireAdmin(config, body, fetcher) {
 
 async function adminDashboard(config, body, fetcher) {
   await requireAdmin(config, body, fetcher);
-  const customers = await databaseRequest(config, '/rest/v1/customers?select=id,first_name,last_name,phone,created_at&order=created_at.desc&limit=100', {
-    method: 'GET', headers: { accept: 'application/json' },
+  const customers = await databaseRequest(config, '/rest/v1/customers?select=id,first_name,last_name,phone,telegram_user_id,created_at&order=created_at.desc&limit=500', {
+    method: 'GET', headers: readHeaders,
   }, fetcher);
-  return { ok: true, customers: Array.isArray(customers) ? customers : [] };
+  // Telegram user ids stay on the server; the admin only needs to know whether the customer is linked.
+  const list = (Array.isArray(customers) ? customers : []).map(({ telegram_user_id: telegramUserId, ...customer }) => ({ ...customer, linked: telegramUserId !== null && telegramUserId !== undefined }));
+  return { ok: true, customers: list };
 }
 
 async function adminCreateCustomer(config, body, fetcher) {
   await requireAdmin(config, body, fetcher);
   const firstName = cleanText(body?.customer?.firstName, 80);
   const lastName = cleanText(body?.customer?.lastName, 80);
-  const phone = cleanText(body?.customer?.phone, 32);
-  if (!firstName) throw { status: 400, code: 'invalid_customer' };
+  const phone = normalizeUzPhone(cleanText(body?.customer?.phone, 32));
+  // The phone number is required: it is how the customer's Telegram account is linked later.
+  if (!firstName || !phone) throw { status: 400, code: 'invalid_customer' };
+  const existing = await databaseRequest(config, `/rest/v1/customers?phone_normalized=eq.${phone.digits}&select=id&limit=1`, { method: 'GET', headers: readHeaders }, fetcher);
+  if (firstRow(existing)) throw { status: 409, code: 'customer_exists' };
   const rows = await databaseRequest(config, '/rest/v1/customers', {
-    method: 'POST', headers: { 'content-type': 'application/json', prefer: 'return=representation' },
-    body: JSON.stringify([{ first_name: firstName, last_name: lastName, phone }]),
+    method: 'POST', headers: writeJson,
+    body: JSON.stringify([{ first_name: firstName, last_name: lastName, phone: phone.phone }]),
   }, fetcher);
   const customer = firstRow(rows);
   if (!customer) throw { status: 502, code: 'database_invalid_response' };
-  return { ok: true, customer: { id: customer.id, firstName: customer.first_name, lastName: customer.last_name, phone: customer.phone } };
+  return { ok: true, customer: customerView(customer) };
 }
 
 async function adminVehicles(config, body, fetcher) {
   await requireAdmin(config, body, fetcher);
   const customerId = body?.customerId;
-  if (!validUuid(customerId)) throw { status: 400, code: 'invalid_vehicle' };
-  const vehicles = await databaseRequest(config, `/rest/v1/vehicles?customer_id=eq.${encodeURIComponent(customerId)}&select=id,make,model,plate,production_year,created_at&order=created_at.desc`, {
-    method: 'GET', headers: { accept: 'application/json' },
+  // Without a customer the admin sees every vehicle with its owner's name.
+  if (customerId !== undefined && customerId !== null && !validUuid(customerId)) throw { status: 400, code: 'invalid_vehicle' };
+  const filter = customerId ? `customer_id=eq.${encodeURIComponent(customerId)}&` : '';
+  const vehicles = await databaseRequest(config, `/rest/v1/vehicles?${filter}select=id,customer_id,make,model,plate,production_year,created_at,customers(first_name,last_name),service_records(id,service_type,performed_on,next_due_on,odometer_km,created_at)&order=created_at.desc&limit=500`, {
+    method: 'GET', headers: readHeaders,
   }, fetcher);
   return { ok: true, vehicles: Array.isArray(vehicles) ? vehicles : [] };
+}
+
+// Today in Uzbekistan (UTC+5, no daylight saving), as YYYY-MM-DD.
+function serviceToday(now = Date.now()) {
+  return new Date(now + 5 * 3600 * 1000).toISOString().slice(0, 10);
+}
+
+function daysBetween(from, to) {
+  return Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86400000);
+}
+
+// Admin home: customer count and the services that are overdue or due within 7 days.
+// Only the most recent record of each vehicle and service counts; older ones are history.
+async function adminOverview(config, body, fetcher) {
+  await requireAdmin(config, body, fetcher);
+  const customers = await databaseRequest(config, '/rest/v1/customers?select=id&limit=10000', { method: 'GET', headers: readHeaders }, fetcher);
+  const records = await databaseRequest(config, '/rest/v1/service_records?select=id,vehicle_id,service_type,performed_on,next_due_on,created_at,vehicles(id,model,make,plate,customers(id,first_name,last_name,phone))&order=performed_on.desc,created_at.desc&limit=10000', { method: 'GET', headers: readHeaders }, fetcher);
+  const today = serviceToday();
+  const latest = new Map();
+  for (const record of Array.isArray(records) ? records : []) {
+    const key = `${record.vehicle_id}:${record.service_type}`;
+    if (!latest.has(key)) latest.set(key, record);
+  }
+  const due = [...latest.values()]
+    .filter(record => validDate(record.next_due_on))
+    .map(record => ({ record, days: daysBetween(today, record.next_due_on) }))
+    .filter(item => item.days <= 7)
+    .sort((a, b) => a.days - b.days)
+    .map(({ record, days }) => ({
+      id: record.id, serviceType: record.service_type, nextDueOn: record.next_due_on, days,
+      vehicle: record.vehicles ? { id: record.vehicles.id, model: record.vehicles.model, make: record.vehicles.make, plate: record.vehicles.plate } : null,
+      customer: record.vehicles?.customers ? { id: record.vehicles.customers.id, first_name: record.vehicles.customers.first_name, last_name: record.vehicles.customers.last_name, phone: record.vehicles.customers.phone } : null,
+    }));
+  return {
+    ok: true, today,
+    stats: { customers: Array.isArray(customers) ? customers.length : 0, thisWeek: due.filter(item => item.days >= 0).length, overdue: due.filter(item => item.days < 0).length },
+    due: due.slice(0, 50),
+  };
 }
 
 async function adminCreateVehicle(config, body, fetcher) {
@@ -253,14 +328,27 @@ async function adminCreateServiceRecord(config, body, fetcher) {
   const vehicle = await vehicleForAdmin(config, body?.vehicleId, fetcher);
   const serviceType = cleanText(body?.record?.serviceType, 32);
   const performedOn = cleanText(body?.record?.performedOn, 10);
-  const nextDueOn = cleanText(body?.record?.nextDueOn, 10) || null;
+  let nextDueOn = cleanText(body?.record?.nextDueOn, 10) || null;
   const notes = cleanText(body?.record?.notes, 2000);
   const odometerText = cleanText(String(body?.record?.odometerKm ?? ''), 12);
   const odometerKm = odometerText ? Number(odometerText) : null;
   if (!serviceTypes.has(serviceType) || !validDate(performedOn) || (nextDueOn && (!validDate(nextDueOn) || nextDueOn < performedOn)) || (odometerKm !== null && (!Number.isInteger(odometerKm) || odometerKm < 0))) throw { status: 400, code: 'invalid_service_record' };
+  // Tires: the next replacement date of each wheel. Other services never store wheel data.
+  let tirePositions = null;
+  if (serviceType === 'tires' && body?.record?.tirePositions !== undefined && body.record.tirePositions !== null) {
+    const supplied = body.record.tirePositions;
+    if (typeof supplied !== 'object' || Array.isArray(supplied)) throw { status: 400, code: 'invalid_service_record' };
+    const wheels = Object.fromEntries(tirePositionKeys.map(key => [key, cleanText(supplied[key] ?? '', 10) || null]));
+    if (Object.values(wheels).some(date => date && (!validDate(date) || date < performedOn))) throw { status: 400, code: 'invalid_service_record' };
+    const dates = Object.values(wheels).filter(Boolean).sort();
+    if (dates.length) {
+      tirePositions = wheels;
+      if (!nextDueOn) nextDueOn = dates[0];
+    }
+  }
   const rows = await databaseRequest(config, '/rest/v1/service_records', {
-    method: 'POST', headers: { 'content-type': 'application/json', prefer: 'return=representation' },
-    body: JSON.stringify([{ vehicle_id: vehicle.id, service_type: serviceType, performed_on: performedOn, next_due_on: nextDueOn, odometer_km: odometerKm, notes }]),
+    method: 'POST', headers: writeJson,
+    body: JSON.stringify([{ vehicle_id: vehicle.id, service_type: serviceType, performed_on: performedOn, next_due_on: nextDueOn, odometer_km: odometerKm, notes, tire_positions: tirePositions }]),
   }, fetcher);
   const record = firstRow(rows);
   if (!record) throw { status: 502, code: 'database_invalid_response' };
@@ -270,22 +358,78 @@ async function adminCreateServiceRecord(config, body, fetcher) {
 async function customerVehicles(config, body, fetcher) {
   const actor = await miniAppActor(config, body, fetcher);
   if (!actor.customer) return { ok: true, account: 'unlinked', vehicles: [] };
-  const vehicles = await databaseRequest(config, `/rest/v1/vehicles?customer_id=eq.${encodeURIComponent(actor.customer.id)}&select=id,make,model,plate,production_year,service_records(id,service_type,performed_on,next_due_on,odometer_km,notes)&order=created_at.desc`, {
+  const vehicles = await databaseRequest(config, `/rest/v1/vehicles?customer_id=eq.${encodeURIComponent(actor.customer.id)}&select=id,make,model,plate,production_year,service_records(id,service_type,performed_on,next_due_on,odometer_km,notes,tire_positions)&order=created_at.desc`, {
     method: 'GET', headers: { accept: 'application/json' },
   }, fetcher);
   return { ok: true, account: 'ready', vehicles: Array.isArray(vehicles) ? vehicles : [] };
+}
+
+function contactReply(config, chatId, text, openApp = false) {
+  const reply = { method: 'sendMessage', chat_id: chatId, text };
+  if (openApp && config.miniAppUrl) reply.reply_markup = { inline_keyboard: [[{ text: 'Kabinetni ochish', web_app: { url: config.miniAppUrl } }]] };
+  return reply;
+}
+
+// Called only after the webhook secret was verified, so the update really comes
+// from Telegram. A contact links an account only when it is the sender's own
+// number (contact.user_id === from.id), which Telegram guarantees for the
+// "share my phone number" flow used by the Mini App.
+async function linkContact(config, update, fetcher) {
+  const message = update.message;
+  const from = message?.from;
+  if (message?.chat?.type !== 'private' || from?.is_bot !== false || !Number.isSafeInteger(from?.id) || from.id <= 0 || message.chat.id !== from.id) return { ok: true };
+  const chatId = from.id;
+  if (message.contact.user_id !== from.id) return contactReply(config, chatId, 'Iltimos, faqat o‘zingizning telefon raqamingizni ulashing.');
+  const phone = normalizeUzPhone(message.contact.phone_number);
+  if (!phone) return contactReply(config, chatId, 'Hozircha faqat O‘zbekiston (+998) raqamlari qabul qilinadi.');
+  try {
+    const firstName = cleanText(from.first_name, 80) || 'Mijoz';
+    const lastName = cleanText(from.last_name, 80);
+    await databaseRequest(config, '/rest/v1/telegram_profiles?on_conflict=telegram_user_id', {
+      method: 'POST', headers: { 'content-type': 'application/json', prefer: 'resolution=merge-duplicates,return=minimal' },
+      body: JSON.stringify([{ telegram_user_id: from.id, first_name: firstName, last_name: lastName, username: cleanText(from.username, 32), language_code: cleanText(from.language_code, 16) }]),
+    }, fetcher);
+    const own = firstRow(await databaseRequest(config, `/rest/v1/customers?telegram_user_id=eq.${from.id}&select=id,phone_normalized&limit=1`, { method: 'GET', headers: readHeaders }, fetcher));
+    const matches = await databaseRequest(config, `/rest/v1/customers?phone_normalized=eq.${phone.digits}&select=id,telegram_user_id&limit=2`, { method: 'GET', headers: readHeaders }, fetcher);
+    const conflict = () => contactReply(config, chatId, 'Bu raqam boshqa mijoz kartasiga biriktirilgan. Iltimos, servis administratoriga murojaat qiling.');
+    const cards = Array.isArray(matches) ? matches : [];
+    if (own) {
+      // Already linked: the number may change only if no other card uses it.
+      if (cards.some(row => row.id !== own.id)) return conflict();
+      if (own.phone_normalized !== phone.digits) {
+        await databaseRequest(config, `/rest/v1/customers?id=eq.${encodeURIComponent(own.id)}`, { method: 'PATCH', headers: writeJson, body: JSON.stringify({ phone: phone.phone }) }, fetcher);
+      }
+      return contactReply(config, chatId, 'Telefon raqamingiz yangilandi ✅', true);
+    }
+    // Not linked yet: refuse claimed cards and ambiguous duplicates; link a single free card.
+    if (cards.length > 1 || cards.some(row => row.telegram_user_id !== null && row.telegram_user_id !== undefined)) return conflict();
+    const unlinked = cards[0];
+    if (unlinked) {
+      // The telegram_user_id filter makes the link atomic: a card already claimed is never taken over.
+      const linked = firstRow(await databaseRequest(config, `/rest/v1/customers?id=eq.${encodeURIComponent(unlinked.id)}&telegram_user_id=is.null`, { method: 'PATCH', headers: writeJson, body: JSON.stringify({ telegram_user_id: from.id }) }, fetcher));
+      if (!linked) return conflict();
+    } else {
+      await databaseRequest(config, '/rest/v1/customers', { method: 'POST', headers: writeJson, body: JSON.stringify([{ telegram_user_id: from.id, first_name: firstName, last_name: lastName, phone: phone.phone }]) }, fetcher);
+    }
+    return contactReply(config, chatId, 'Raqamingiz tasdiqlandi ✅ Endi kabinetingizni ochishingiz mumkin.', true);
+  } catch {
+    // Reply with 200 so Telegram does not retry the same update in a loop.
+    return contactReply(config, chatId, 'Hozir raqamni ulab bo‘lmadi. Birozdan so‘ng qayta urinib ko‘ring.');
+  }
 }
 
 async function miniAppAction(config, body, fetcher) {
   if (!body || typeof body.action !== 'string') throw { status: 400, code: 'invalid_action' };
   if (body.action === 'miniapp-session') return miniAppSession(config, body, fetcher);
   if (body.action === 'admin-dashboard') return adminDashboard(config, body, fetcher);
+  if (body.action === 'admin-overview') return adminOverview(config, body, fetcher);
   if (body.action === 'admin-create-customer') return adminCreateCustomer(config, body, fetcher);
   if (body.action === 'admin-vehicles') return adminVehicles(config, body, fetcher);
   if (body.action === 'admin-create-vehicle') return adminCreateVehicle(config, body, fetcher);
   if (body.action === 'admin-service-records') return adminServiceRecords(config, body, fetcher);
   if (body.action === 'admin-create-service-record') return adminCreateServiceRecord(config, body, fetcher);
   if (body.action === 'customer-vehicles') return customerVehicles(config, body, fetcher);
+  if (body.action === 'customer-update-profile') return customerUpdateProfile(config, body, fetcher);
   throw { status: 400, code: 'invalid_action' };
 }
 
@@ -316,13 +460,14 @@ export function createEdgeHandler({ env, fetcher = fetch }) {
         return send(200, await setup(config, await readJson(request, 4096), fetcher));
       }
       const body = await readJson(request, 65536);
-      if (['miniapp-session', 'admin-dashboard', 'admin-create-customer', 'admin-vehicles', 'admin-create-vehicle', 'admin-service-records', 'admin-create-service-record', 'customer-vehicles'].includes(body?.action)) return send(200, await miniAppAction(config, body, fetcher));
+      if (['miniapp-session', 'admin-dashboard', 'admin-overview', 'admin-create-customer', 'admin-vehicles', 'admin-create-vehicle', 'admin-service-records', 'admin-create-service-record', 'customer-vehicles', 'customer-update-profile'].includes(body?.action)) return send(200, await miniAppAction(config, body, fetcher));
       const webhookSecret = await deriveWebhookSecret(config.token, config.webhookUrl);
       if (!(await matchesSecret(request.headers.get('x-telegram-bot-api-secret-token'), webhookSecret))) return send(401, { error: 'unauthorized' });
       if (!Number.isSafeInteger(body?.update_id) || body.update_id < 0) return send(400, { error: 'invalid_update' });
+      if (body.message?.contact && typeof body.message.contact === 'object') return send(200, await linkContact(config, body, fetcher));
       return send(200, replyForUpdate(body, config) || { ok: true });
     } catch (error) {
-    const known = ['json_required', 'body_too_large', 'invalid_json', 'invalid_action', 'invalid_customer', 'invalid_vehicle', 'invalid_service_record', 'vehicle_not_found', 'admin_required', 'telegram_connection_failed', 'telegram_invalid_response', 'telegram_request_failed', 'bot_username_mismatch', 'invalid_init_data', 'telegram_identity_invalid', 'telegram_identity_expired', 'invalid_telegram_user', 'server_database_required', 'database_connection_failed', 'database_request_failed', 'database_invalid_response'];
+    const known = ['json_required', 'body_too_large', 'invalid_json', 'invalid_action', 'invalid_customer', 'customer_exists', 'customer_required', 'invalid_profile', 'invalid_vehicle', 'invalid_service_record', 'vehicle_not_found', 'admin_required', 'telegram_connection_failed', 'telegram_invalid_response', 'telegram_request_failed', 'bot_username_mismatch', 'invalid_init_data', 'telegram_identity_invalid', 'telegram_identity_expired', 'invalid_telegram_user', 'server_database_required', 'database_connection_failed', 'database_request_failed', 'database_invalid_response'];
       if (!known.includes(error?.code)) return send(500, { error: 'internal_error' });
       return send(error.status, { error: error.code, ...(error.stage ? { stage: error.stage } : {}) });
     }
