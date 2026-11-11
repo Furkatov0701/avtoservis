@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { TireArt } from '../Icon';
 import { useCabinet } from './context';
 import { Empty, Failure, Icon, Pill, PlateBadge, SearchBar, ServiceRow, VehicleHero } from './ui';
-import { dueStatus, formatDayLong, formatDayShort, formatKm, formatPhone, formatRange, fullName, initials, recordsFor, serviceById, services, serviceStatuses, tireWheels, vehicleName, worstStatus } from './format';
+import { dueStatus, ODOMETER_SERVICES, formatDayLong, formatDayShort, formatKm, formatPhone, formatRange, fullName, initials, recordsFor, serviceById, services, serviceStatuses, tireWheels, vehicleName, worstStatus } from './format';
 
 const normalize = value => (value || '').toLocaleLowerCase('uz').replace(/\s+/g, '');
 
@@ -144,18 +144,18 @@ export function ServiceDetail() {
   return <section className="tg-page"><h1 className="sr-only">{service.name}</h1>
     <label className="tg-select"><span className="sr-only">Xizmat turini tanlang</span><select value={service.id} onChange={event => navigate(`/bolimlar/${event.target.value}`, { replace: true })}>{services.map(item => <option key={item.id} value={item.id}>{item.name.toUpperCase()}</option>)}</select><Icon name="down" size={20} /></label>
     <VehicleContext vehicle={selectedVehicle} />
-    {records.kind === 'loading' && !list.length ? <Empty loading title="Xizmatlar yuklanmoqda…" /> : records.kind === 'error' ? <Failure title="Xizmatlarni yuklab bo‘lmadi" onRetry={() => loadRecords(selectedVehicle.id)} /> : !list.length ? <Empty title="Hali yozuv yo‘q">{role === 'admin' ? 'Pastdagi tugma orqali birinchi yozuvni qo‘shing.' : 'Servisda xizmat ko‘rsatilgach, sanalar shu yerda ko‘rinadi.'}</Empty>
+    {records.kind === 'loading' && !list.length ? <Empty loading title="Xizmatlar yuklanmoqda…" /> : records.kind === 'error' ? <Failure title="Xizmatlarni yuklab bo‘lmadi" onRetry={() => loadRecords(selectedVehicle.id)} /> : !list.length ? <Empty title="Hali ma’lumot yo‘q">{role === 'admin' ? '«Ma’lumot kiritish» tugmasi orqali birinchi ma’lumotni kiriting.' : 'Servisda xizmat ko‘rsatilgach, sanalar shu yerda ko‘rinadi.'}</Empty>
       : wheels ? <>
         <div className="tg-car" aria-label="Balonlarning keyingi almashtirish sanalari"><span className="tg-car-body" aria-hidden="true" />
           {tireWheels.map(wheel => { const wheelStatus = dueStatus(wheels[wheel.id], latest.performed_on); return <span key={wheel.id} className={`tg-tyre ${wheel.id} ${wheelStatus.kind}`} aria-hidden="true" />; })}
-          {tireWheels.map(wheel => { const wheelStatus = dueStatus(wheels[wheel.id], latest.performed_on); return <div key={wheel.id} className={`tg-wheel ${wheel.id}`}><small>{wheel.name.toUpperCase()}</small><strong>{formatDayLong(wheels[wheel.id]) || '—'}</strong><Pill kind={wheelStatus.kind}>{wheelStatus.pill}</Pill></div>; })}
+          {tireWheels.map(wheel => { const wheelStatus = dueStatus(wheels[wheel.id], latest.performed_on); return <div key={wheel.id} className={`tg-wheel ${wheel.id}`}><small>{wheel.name.toUpperCase()}</small><strong>{formatDayLong(wheels[wheel.id]) || '—'}</strong><Pill kind={wheelStatus.kind}>{wheelStatus.pill}</Pill>{role === 'admin' && <Link className="tg-wheel-edit" to={`/bolimlar/tires/${latest.id}/tahrir`} state={{ wheel: wheel.id }} aria-label={`${wheel.name}: tahrirlash`}><Icon name="edit" size={16} /></Link>}</div>; })}
         </div>
         <div className="tg-row"><span className="tg-duo"><Icon name="clock" size={22} /></span><span className="tg-row-main"><span className="tg-row-top"><strong>OXIRGI ALMASHTIRISH</strong></span><span className="tg-row-sub"><span>{formatDayShort(latest.performed_on)}{latest.odometer_km ? ` · ${formatKm(latest.odometer_km)}` : ''}</span></span></span></div>
       </> : <>
         <div className="tg-next"><small>KEYINGI ALMASHTIRISH</small><strong className={status.kind}>{latest.next_due_on ? formatDayLong(latest.next_due_on) : 'Belgilanmagan'}</strong><span className="tg-bar" aria-hidden="true"><i className={status.kind} style={{ width: `${status.progress}%` }} /></span><span className="tg-row-sub"><span>{formatDayShort(latest.performed_on)} dan</span><b className={status.kind}>{status.note}</b></span></div>
       </>}
-    {list.length > 0 && <><h2 className="tg-section">Tarix</h2><div className="tg-history">{list.map(record => <div className="tg-hist" key={record.id}><Icon name="calendar" size={18} /><strong>{formatRange(record.performed_on, record.next_due_on)}</strong><span>{formatKm(record.odometer_km)}</span></div>)}</div></>}
-    {role === 'admin' && <Link className="tg-primary tg-bottom-action" to={`/bolimlar/${service.id}/yangi`}><Icon name="plus" size={18} /> Yozuv qo‘shish</Link>}
+    {list.length > 0 && <><h2 className="tg-section">Tarix</h2><div className="tg-history">{list.map(record => <div className="tg-hist" key={record.id}><Icon name="calendar" size={18} /><strong>{formatRange(record.performed_on, record.next_due_on)}</strong>{ODOMETER_SERVICES.has(service.id) && <span>{formatKm(record.odometer_km)}</span>}{role === 'admin' && <Link className="tg-hist-edit" to={`/bolimlar/${service.id}/${record.id}/tahrir`} aria-label={`${formatRange(record.performed_on, record.next_due_on)}: tahrirlash`}><Icon name="edit" size={16} /></Link>}</div>)}</div></>}
+    {role === 'admin' && <Link className="tg-primary tg-bottom-action" to={`/bolimlar/${service.id}/yangi`}><Icon name="plus" size={18} /> Ma’lumot kiritish</Link>}
   </section>;
 }
 

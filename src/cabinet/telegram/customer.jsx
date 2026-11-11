@@ -2,8 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { loadTelegramSession } from './api';
 import { useCabinet } from './context';
-import { Empty, FormPage, Icon, Notice, PrimaryButton, TextField } from './ui';
-import { formatPhone } from './format';
+import { capitalizeWords, Empty, FormPage, Icon, Notice, PrimaryButton, TextField } from './ui';
+import { formatPhone, titleCase } from './format';
 
 const POLL_INTERVAL = 1500;
 const POLL_ATTEMPTS = 20;
@@ -50,8 +50,8 @@ export function Register() {
   const submit = async event => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    const firstName = String(form.get('firstName') || '').trim();
-    const lastName = String(form.get('lastName') || '').trim();
+    const firstName = titleCase(String(form.get('firstName') || '').trim());
+    const lastName = titleCase(String(form.get('lastName') || '').trim());
     const found = {};
     if (!firstName) found.firstName = 'Ismingizni kiriting.';
     if (!lastName) found.lastName = 'Familiyangizni kiriting.';
@@ -71,7 +71,7 @@ export function Register() {
     finally { if (alive()) setBusy(false); }
   };
   return <FormPage title="Akkaunt yaratish" subtitle="User"><form className="tg-form" onSubmit={submit} noValidate>
-    <div className="tg-form-row"><TextField label="Ism" name="firstName" required maxLength="80" defaultValue={profile.firstName || ''} placeholder="Ali" autoComplete="given-name" error={errors.firstName} /><TextField label="Familiya" name="lastName" required maxLength="80" defaultValue={profile.lastName || ''} placeholder="Valiyev" autoComplete="family-name" error={errors.lastName} /></div>
+    <div className="tg-form-row"><TextField label="Ism" name="firstName" required maxLength="80" defaultValue={profile.firstName || ''} placeholder="Ali" autoComplete="given-name" autoCapitalize="words" onInput={capitalizeWords} error={errors.firstName} /><TextField label="Familiya" name="lastName" required maxLength="80" defaultValue={profile.lastName || ''} placeholder="Valiyev" autoComplete="family-name" autoCapitalize="words" onInput={capitalizeWords} error={errors.lastName} /></div>
     <div className="tg-field"><span className="tg-label">Telefon raqami *</span><p className="tg-contact-box"><Icon name="contact" size={20} /><span>Raqamingiz Telegram orqali xavfsiz ulashiladi. Parol kerak emas.</span></p></div>
     <Notice kind="error">{failure}</Notice>
     {busy && <Notice>Telegram oynasida «Raqamni ulashish»ni tasdiqlang…</Notice>}
@@ -94,8 +94,8 @@ export function ProfileEdit() {
   const submit = async event => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    const firstName = String(form.get('firstName') || '').trim();
-    const lastName = String(form.get('lastName') || '').trim();
+    const firstName = titleCase(String(form.get('firstName') || '').trim());
+    const lastName = titleCase(String(form.get('lastName') || '').trim());
     const found = {};
     if (!firstName) found.firstName = 'Ismingizni kiriting.';
     setErrors(found); setFailure('');
@@ -122,7 +122,7 @@ export function ProfileEdit() {
     } finally { if (alive()) setPhoneBusy(false); }
   };
   return <FormPage title="Profilni tahrirlash" subtitle="User"><form className="tg-form" onSubmit={submit} noValidate>
-    <div className="tg-form-row"><TextField label="Ism" name="firstName" required maxLength="80" defaultValue={customer.firstName || ''} autoComplete="given-name" error={errors.firstName} /><TextField label="Familiya" name="lastName" maxLength="80" defaultValue={customer.lastName || ''} autoComplete="family-name" /></div>
+    <div className="tg-form-row"><TextField label="Ism" name="firstName" required maxLength="80" defaultValue={customer.firstName || ''} autoComplete="given-name" autoCapitalize="words" onInput={capitalizeWords} error={errors.firstName} /><TextField label="Familiya" name="lastName" maxLength="80" defaultValue={customer.lastName || ''} autoComplete="family-name" autoCapitalize="words" onInput={capitalizeWords} /></div>
     <div className="tg-field"><span className="tg-label">Telefon raqami</span><p className="tg-contact-box"><Icon name="phone" size={20} /><span>{formatPhone(customer.phone) || 'Kiritilmagan'}</span><button type="button" className="tg-chip" onClick={changePhone} disabled={phoneBusy}>{phoneBusy ? 'Kutilmoqda…' : 'Yangilash'}</button></p></div>
     <Notice>{notice}</Notice>
     <Notice kind="error">{failure}</Notice>

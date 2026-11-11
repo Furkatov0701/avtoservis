@@ -70,6 +70,19 @@ async function api(page, state) {
         vehicle.service_records.unshift(record);
         return ok({ record });
       }
+      case 'admin-update-service-record': {
+        const vehicle = state.vehicles.find(item => item.service_records.some(record => record.id === body.recordId));
+        const record = vehicle?.service_records.find(item => item.id === body.recordId);
+        if (!record) return fail(404, 'record_not_found');
+        const r = body.record;
+        const wheels = r.tirePositions ? Object.fromEntries(Object.entries(r.tirePositions).map(([key, value]) => [key, value || null])) : null;
+        Object.assign(record, { performed_on: r.performedOn, next_due_on: wheels ? Object.values(wheels).filter(Boolean).sort()[0] : r.nextDueOn || null, tire_positions: wheels, odometer_km: r.odometerKm ? Number(r.odometerKm) : null });
+        return ok({ record });
+      }
+      case 'admin-delete-service-record': {
+        for (const vehicle of state.vehicles) vehicle.service_records = vehicle.service_records.filter(record => record.id !== body.recordId);
+        return ok({ deleted: body.recordId });
+      }
       case 'customer-vehicles': return state.customer ? ok({ vehicles: state.vehicles }) : ok({ account: 'unlinked', vehicles: [] });
       case 'customer-update-profile': {
         if (!state.customer) return fail(403, 'customer_required');
@@ -141,9 +154,30 @@ test('admin: home, customers table, adding a customer, a car and a tire record',
   await expect(page.locator('.tg-context')).toContainText('Sardor Karimov');
   await expect(page.getByText('Hali mashina yo‘q')).toBeVisible();
   await page.getByRole('link', { name: 'Mashina qo‘shish' }).click();
-  await page.getByLabel('Modeli *').fill('Cobalt'); await page.getByLabel('Davlat raqami *').fill('01 a 123 bc');
+  // Autocomplete: typing "dam" offers Damas; picking it fills the make and the model.
+  await page.getByLabel('Markasi').fill('dam');
+  await page.getByRole('option', { name: /Damas\s*Chevrolet/ }).click();
+  await expect(page.getByLabel('Markasi')).toHaveValue('Chevrolet');
+  await expect(page.getByLabel('Modeli *')).toHaveValue('Damas');
+  // Typed names are capitalised.
+  await page.getByLabel('Modeli *').fill('cobalt');
+  await expect(page.getByLabel('Modeli *')).toHaveValue('Cobalt');
+  await page.getByRole('option', { name: 'Cobalt' }).click();
+  // Plate: two-digit region + six characters, always upper case; year from 1980.
+  await page.getByLabel('Hudud kodi (2 raqam)').fill('0');
+  await page.getByLabel('Raqam (6 belgi)').fill('a1');
+  await page.getByLabel('Ishlab chiqarilgan yili').fill('1979');
+  await page.getByRole('button', { name: 'Qo‘shish' }).click();
+  await expect(page.getByText('Hudud kodi 2 raqam, qolgani 6 belgi: A123BC yoki 123ABC.')).toBeVisible();
+  await expect(page.getByText(/Yil 1980 dan \d{4} gacha bo‘lsin\./)).toBeVisible();
+  await page.getByLabel('Hudud kodi (2 raqam)').fill('01');
+  await page.getByLabel('Raqam (6 belgi)').fill('a-123 bc');
+  await expect(page.getByLabel('Raqam (6 belgi)')).toHaveValue('A123BC');
+  await page.getByLabel('Ishlab chiqarilgan yili').fill('2015');
+  await page.screenshot({ path: `${SHOTS}/admin-mashina-qoshish.png` });
   await page.getByRole('button', { name: 'Qo‘shish' }).click();
   await expect(page.getByRole('button', { name: /COBALT/ })).toBeVisible();
+  expect(calls.find(call => call.action === 'admin-create-vehicle').vehicle).toEqual({ make: 'Chevrolet', model: 'Cobalt', plate: '01A123BC', productionYear: '2015' });
 
   // All cars, then the design's car grid and the sections list with next dates.
   await page.getByRole('button', { name: 'Barcha mashinalar' }).click();
@@ -159,7 +193,8 @@ test('admin: home, customers table, adding a customer, a car and a tire record',
   await expect(page.locator('.tg-wheel')).toHaveCount(4);
   await expect(page.locator('.tg-tyre.soon')).toHaveCount(2);
   await page.screenshot({ path: `${SHOTS}/admin-balonlar.png` });
-  await page.getByRole('link', { name: 'Yozuv qo‘shish' }).click();
+  await page.getByRole('link', { name: 'Ma’lumot kiritish' }).click();
+  await expect(page.getByLabel('Kilometr')).toBeVisible();
   await page.getByLabel('Bajarilgan sana *').fill(d(0));
   await page.getByLabel('Old chap').fill(d(-5));
   await page.getByRole('button', { name: 'Saqlash' }).click();
@@ -170,6 +205,32 @@ test('admin: home, customers table, adding a customer, a car and a tire record',
   await expect(page.locator('.tg-wheel.front_left')).toContainText(`15 YANVAR ${Y + 1}`);
   const saved = calls.find(call => call.action === 'admin-create-service-record');
   expect(saved.record.tirePositions).toEqual({ front_left: `${Y + 1}-01-15`, front_right: '', rear_left: '', rear_right: '' });
+
+  // Each wheel has an edit button: correct the front-right date of the saved record.
+  await page.getByRole('link', { name: 'Old o‘ng: tahrirlash' }).click();
+  await expect(page.getByRole('heading', { name: 'Balonlar: tahrirlash' })).toBeVisible();
+  await expect(page.getByLabel('Old chap')).toHaveValue(`${Y + 1}-01-15`);
+  await expect(page.getByLabel('Old o‘ng')).toBeFocused();
+  await page.getByLabel('Old o‘ng').fill(`${Y + 1}-02-20`);
+  await page.screenshot({ path: `${SHOTS}/admin-balon-tahrirlash.png` });
+  await page.getByRole('button', { name: 'Saqlash' }).click();
+  await expect(page.locator('.tg-wheel.front_right')).toContainText(`20 FEVRAL ${Y + 1}`);
+  expect(calls.find(call => call.action === 'admin-update-service-record').record.tirePositions.front_right).toBe(`${Y + 1}-02-20`);
+
+  // Tint has no kilometre field; a mistaken record can be deleted after confirmation.
+  await page.getByLabel('Xizmat turini tanlang').selectOption('tint');
+  await page.getByRole('link', { name: 'Ma’lumot kiritish' }).click();
+  await expect(page.getByLabel('Kilometr')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Bekor qilish' }).click();
+  const tintRows = page.locator('.tg-hist');
+  await expect(tintRows).toHaveCount(1);
+  await expect(tintRows.first()).not.toContainText('km');
+  await page.locator('.tg-hist-edit').first().click();
+  await page.getByRole('button', { name: 'Yozuvni o‘chirish' }).click();
+  await page.getByRole('button', { name: 'Ha, o‘chirish' }).click();
+  await expect(page.getByText('Hali ma’lumot yo‘q')).toBeVisible();
+  expect(calls.some(call => call.action === 'admin-delete-service-record')).toBe(true);
+  await page.getByLabel('Xizmat turini tanlang').selectOption('tires');
 
   // The Telegram back button walks back through the app.
   expect(await page.evaluate(() => backVisible)).toBe(true);
@@ -212,7 +273,8 @@ test('customer: cars, sections, service dates, tires, profile and editing', asyn
   await expect(page.locator('.tg-wheel')).toHaveCount(4);
   await expect(page.locator('.tg-wheel.rear_left')).toContainText('119 kun');
   await page.screenshot({ path: `${SHOTS}/12-user-balonlar.png` });
-  await expect(page.getByRole('link', { name: 'Yozuv qo‘shish' })).toHaveCount(0);
+  await expect(page.getByRole('link', { name: 'Ma’lumot kiritish' })).toHaveCount(0);
+  await expect(page.locator('.tg-wheel-edit, .tg-hist-edit')).toHaveCount(0);
 
   // Profile card: name, car with plate, phone, edit and exit.
   await page.getByRole('link', { name: 'Profil' }).first().click();

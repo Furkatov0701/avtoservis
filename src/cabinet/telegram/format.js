@@ -159,3 +159,24 @@ export function formatDayLong(value, today = new Date()) {
   const date = parts(value);
   return date ? `${date.day} ${monthsFull[date.month - 1]}${yearSuffix(date.year, today)}` : '';
 }
+
+// ---- Input normalisation (mirrors the server) ----
+
+// "chevrolet malibu" -> "Chevrolet Malibu"; the rest of each word stays as typed (BMW stays BMW).
+export function titleCase(value) {
+  return (value || '').replace(/(^|[\s-])(\S)/g, (_, gap, letter) => gap + letter.toUpperCase());
+}
+
+export function sentenceCase(value) {
+  return value ? value[0].toUpperCase() + value.slice(1) : '';
+}
+
+export const MIN_PRODUCTION_YEAR = 1980;
+export const maxProductionYear = (now = new Date()) => now.getFullYear() + 1;
+
+// Plate body after the region: "A 123 BC" (individuals) or "123 ABC" (organisations).
+export const PLATE_BODY = /^([A-Z]\d{3}[A-Z]{2}|\d{3}[A-Z]{3})$/;
+
+// Services where kilometres are recorded.
+export const ODOMETER_SERVICES = new Set(['tires', 'engine_oil']);
+export const MAX_KM = 2000000;

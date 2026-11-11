@@ -8,7 +8,7 @@ import { CabinetContext, useCabinet } from './context';
 import { BottomNav, Empty, Header, Icon, PrimaryButton } from './ui';
 import { initials } from './format';
 import { Home, Vehicles, Sections, ServiceDetail, Profile, Settings, Help, NotFound } from './pages';
-import { Customers, CustomerCreate, VehicleCreate, RecordCreate } from './admin';
+import { Customers, CustomerCreate, VehicleCreate, RecordForm } from './admin';
 import { Register, ProfileEdit } from './customer';
 import './telegram.css';
 
@@ -172,7 +172,8 @@ export function startTelegram() {
     { path: '/mashinalar/yangi', element: <Gate admin chrome={false}><VehicleCreate /></Gate> },
     { path: '/bolimlar', element: <Gate><Sections /></Gate> },
     { path: '/bolimlar/:serviceId', element: <Gate><ServiceDetail /></Gate> },
-    { path: '/bolimlar/:serviceId/yangi', element: <Gate admin chrome={false}><RecordCreate /></Gate> },
+    { path: '/bolimlar/:serviceId/yangi', element: <Gate admin chrome={false}><RecordForm /></Gate> },
+    { path: '/bolimlar/:serviceId/:recordId/tahrir', element: <Gate admin chrome={false}><RecordForm /></Gate> },
     { path: '/profil', element: <Gate nav={false}><Profile /></Gate> },
     { path: '/profil/tahrir', element: <Gate chrome={false}><ProfileEdit /></Gate> },
     { path: '/sozlamalar', element: <Gate><Settings /></Gate> },

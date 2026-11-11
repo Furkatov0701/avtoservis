@@ -2,8 +2,9 @@ import { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { normalizePhone } from '../validation';
 import { useCabinet } from './context';
-import { AddButton, Empty, Failure, FormPage, Notice, PrimaryButton, SearchBar, TextField } from './ui';
-import { formatPhone, fullName, initials, maskPhoneInput, serviceById, tireWheels, vehicleName } from './format';
+import { AddButton, capitalizeSentence, capitalizeWords, Combobox, Empty, Failure, FormPage, Notice, PlateInput, PrimaryButton, SearchBar, TextField } from './ui';
+import { makeSuggestions, modelSuggestions } from './cars';
+import { formatPhone, fullName, initials, maskPhoneInput, MAX_KM, MIN_PRODUCTION_YEAR, maxProductionYear, ODOMETER_SERVICES, PLATE_BODY, recordsFor, sentenceCase, serviceById, splitPlate, tireWheels, titleCase, vehicleName } from './format';
 
 const PAGE = 6;
 const normalize = value => (value || '').toLocaleLowerCase('uz').replace(/\s+/g, '');
@@ -56,8 +57,8 @@ export function CustomerCreate() {
   const submit = async event => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    const firstName = String(form.get('firstName') || '').trim();
-    const lastName = String(form.get('lastName') || '').trim();
+    const firstName = titleCase(String(form.get('firstName') || '').trim());
+    const lastName = titleCase(String(form.get('lastName') || '').trim());
     const normalized = normalizePhone(phone);
     const found = {};
     if (!firstName) found.firstName = 'Ismni kiriting.';
@@ -77,7 +78,7 @@ export function CustomerCreate() {
     } finally { setBusy(false); }
   };
   return <FormPage title="Mijoz qo‘shish" subtitle="Admin"><form className="tg-form" onSubmit={submit} noValidate>
-    <div className="tg-form-row"><TextField label="Ism" name="firstName" required maxLength="80" placeholder="Ali" autoComplete="off" error={errors.firstName} /><TextField label="Familiya" name="lastName" required maxLength="80" placeholder="Valiyev" autoComplete="off" error={errors.lastName} /></div>
+    <div className="tg-form-row"><TextField label="Ism" name="firstName" required maxLength="80" placeholder="Ali" autoComplete="off" autoCapitalize="words" onInput={capitalizeWords} error={errors.firstName} /><TextField label="Familiya" name="lastName" required maxLength="80" placeholder="Valiyev" autoComplete="off" autoCapitalize="words" onInput={capitalizeWords} error={errors.lastName} /></div>
     <TextField label="Telefon raqami" name="phone" required inputMode="tel" placeholder="+998 (97) 123-45-67" value={phone} onChange={event => setPhone(maskPhoneInput(event.target.value))} error={errors.phone} hint="Mijoz shu raqamni Telegram orqali ulashganda kabineti ochiladi." />
     <Notice kind="error">{failure}</Notice>
     <PrimaryButton type="submit" busy={busy}>Qo‘shish</PrimaryButton><CancelLink />
@@ -87,23 +88,30 @@ export function CustomerCreate() {
 export function VehicleCreate() {
   const { request, selectedCustomer, loadAdminVehicles, selectVehicle } = useCabinet();
   const navigate = useNavigate();
+  const [make, setMake] = useState('');
+  const [model, setModel] = useState('');
+  const [region, setRegion] = useState('');
+  const [plateBody, setPlateBody] = useState('');
   const [errors, setErrors] = useState({});
   const [failure, setFailure] = useState('');
   const [busy, setBusy] = useState(false);
   if (!selectedCustomer) return <FormPage title="Mashina qo‘shish" subtitle="Admin"><Empty title="Avval mijozni tanlang" action={<Link className="tg-secondary" to="/mijozlar">Mijozlarni ochish</Link>} /></FormPage>;
+  const maxYear = maxProductionYear();
+  // A field's error disappears as soon as the field is changed.
+  const clearError = name => setErrors(current => (current[name] ? { ...current, [name]: undefined } : current));
   const submit = async event => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    const vehicle = { make: String(form.get('make') || '').trim(), model: String(form.get('model') || '').trim(), plate: String(form.get('plate') || '').trim(), productionYear: String(form.get('productionYear') || '').trim() };
+    const productionYear = String(form.get('productionYear') || '').trim();
     const found = {};
-    if (!vehicle.model) found.model = 'Modelni kiriting.';
-    if (!vehicle.plate) found.plate = 'Davlat raqamini kiriting.';
-    if (vehicle.productionYear && !/^(19|20|21)\d{2}$/.test(vehicle.productionYear)) found.productionYear = 'Yilni to‘rt xonali son bilan kiriting.';
+    if (!model.trim()) found.model = 'Modelni kiriting.';
+    if (!/^\d{2}$/.test(region) || !PLATE_BODY.test(plateBody)) found.plate = 'Hudud kodi 2 raqam, qolgani 6 belgi: A123BC yoki 123ABC.';
+    if (productionYear && (!/^\d{4}$/.test(productionYear) || Number(productionYear) < MIN_PRODUCTION_YEAR || Number(productionYear) > maxYear)) found.productionYear = `Yil ${MIN_PRODUCTION_YEAR} dan ${maxYear} gacha bo‘lsin.`;
     setErrors(found); setFailure('');
     if (Object.keys(found).length) return;
     setBusy(true);
     try {
-      const data = await request('admin-create-vehicle', { customerId: selectedCustomer.id, vehicle });
+      const data = await request('admin-create-vehicle', { customerId: selectedCustomer.id, vehicle: { make: make.trim(), model: model.trim(), plate: `${region}${plateBody}`, productionYear } });
       await loadAdminVehicles();
       selectVehicle(data.vehicle.id);
       navigate('/mashinalar', { replace: true });
@@ -111,29 +119,40 @@ export function VehicleCreate() {
     finally { setBusy(false); }
   };
   return <FormPage title="Mashina qo‘shish" subtitle={fullName(selectedCustomer)}><form className="tg-form" onSubmit={submit} noValidate>
-    <div className="tg-form-row"><TextField label="Markasi" name="make" maxLength="80" placeholder="Chevrolet" autoComplete="off" /><TextField label="Modeli" name="model" required maxLength="100" placeholder="Malibu 2" autoComplete="off" error={errors.model} /></div>
-    <TextField label="Davlat raqami" name="plate" required maxLength="24" placeholder="30 U 111 UU" autoComplete="off" autoCapitalize="characters" error={errors.plate} />
-    <TextField label="Ishlab chiqarilgan yili" name="productionYear" inputMode="numeric" maxLength="4" placeholder="2022" error={errors.productionYear} />
+    <div className="tg-form-row">
+      <Combobox label="Markasi" name="make" value={make} onChange={setMake} placeholder="Chevrolet" suggestions={makeSuggestions(make)} onPick={item => { setMake(item.make); if (item.model) { setModel(item.model); clearError('model'); } }} />
+      <Combobox label="Modeli" name="model" required value={model} onChange={value => { setModel(value); clearError('model'); }} placeholder="Malibu 2" suggestions={modelSuggestions(model, make)} onPick={item => { setModel(item.model); clearError('model'); if (!make) setMake(item.make); }} error={errors.model} />
+    </div>
+    <PlateInput region={region} body={plateBody} onRegion={value => { setRegion(value); clearError('plate'); }} onBody={value => { setPlateBody(value); clearError('plate'); }} error={errors.plate} />
+    <TextField label="Ishlab chiqarilgan yili" name="productionYear" inputMode="numeric" maxLength="4" placeholder="2022" hint={`${MIN_PRODUCTION_YEAR}–${maxYear}`} onInput={event => { event.target.value = event.target.value.replace(/\D/g, '').slice(0, 4); clearError('productionYear'); }} error={errors.productionYear} />
     <Notice kind="error">{failure}</Notice>
     <PrimaryButton type="submit" busy={busy}>Qo‘shish</PrimaryButton><CancelLink />
   </form></FormPage>;
 }
 
-export function RecordCreate() {
-  const { serviceId } = useParams();
-  const { request, selectedVehicle, loadRecords, goBack } = useCabinet();
+// Create a record (/bolimlar/:serviceId/yangi) or correct one (/bolimlar/:serviceId/:recordId/tahrir).
+export function RecordForm() {
+  const { serviceId, recordId } = useParams();
+  const { request, selectedVehicle, loadRecords, recordCache, goBack } = useCabinet();
+  const focusWheel = useLocation().state?.wheel;
   const [errors, setErrors] = useState({});
   const [failure, setFailure] = useState('');
   const [busy, setBusy] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const service = serviceById[serviceId];
-  if (!service || !selectedVehicle) return <FormPage title="Xizmat yozuvi" subtitle="Admin"><Empty title={service ? 'Avval mashinani tanlang' : 'Xizmat topilmadi'} action={<Link className="tg-secondary" to="/mashinalar">Mashinalarni ochish</Link>} /></FormPage>;
+  const records = selectedVehicle ? recordCache[selectedVehicle.id]?.list || selectedVehicle.service_records || [] : [];
+  const existing = recordId ? recordsFor(records, serviceId).find(record => record.id === recordId) : null;
+  if (!service || !selectedVehicle || (recordId && !existing)) return <FormPage title="Ma’lumot" subtitle="Admin"><Empty title={!service ? 'Xizmat topilmadi' : !selectedVehicle ? 'Avval mashinani tanlang' : 'Yozuv topilmadi'} action={<Link className="tg-secondary" to="/mashinalar">Mashinalarni ochish</Link>} /></FormPage>;
   const tires = service.id === 'tires';
+  const withKm = ODOMETER_SERVICES.has(service.id);
+  const wheels = existing?.tire_positions || {};
   const submit = async event => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     const value = name => String(form.get(name) || '').trim();
     const performedOn = value('performedOn');
-    const record = { serviceType: service.id, performedOn, odometerKm: value('odometerKm'), notes: value('notes') };
+    const record = { serviceType: service.id, performedOn, notes: sentenceCase(value('notes')) };
+    if (withKm) record.odometerKm = value('odometerKm').replace(/\s/g, '');
     const found = {};
     if (!performedOn) found.performedOn = 'Bajarilgan sanani kiriting.';
     if (tires) {
@@ -144,24 +163,35 @@ export function RecordCreate() {
       record.nextDueOn = value('nextDueOn');
       if (record.nextDueOn && performedOn && record.nextDueOn < performedOn) found.nextDueOn = 'Bajarilgan sanadan oldin bo‘lmasin.';
     }
-    if (record.odometerKm && !/^\d{1,9}$/.test(record.odometerKm)) found.odometerKm = 'Kilometrni butun son bilan kiriting.';
+    if (withKm && record.odometerKm && (!/^\d{1,7}$/.test(record.odometerKm) || Number(record.odometerKm) > MAX_KM)) found.odometerKm = 'Kilometrni butun son bilan kiriting.';
     setErrors(found); setFailure('');
     if (Object.keys(found).length) return;
     setBusy(true);
     try {
-      await request('admin-create-service-record', { vehicleId: selectedVehicle.id, record });
+      if (existing) await request('admin-update-service-record', { recordId: existing.id, record });
+      else await request('admin-create-service-record', { vehicleId: selectedVehicle.id, record });
       await loadRecords(selectedVehicle.id);
       goBack();
-    } catch { setFailure('Yozuvni saqlab bo‘lmadi. Sanalarni tekshirib, qayta urinib ko‘ring.'); }
+    } catch { setFailure('Ma’lumotni saqlab bo‘lmadi. Sanalarni tekshirib, qayta urinib ko‘ring.'); }
     finally { setBusy(false); }
   };
-  return <FormPage title={service.name} subtitle={`${vehicleName(selectedVehicle)} · ${selectedVehicle.plate}`}><form className="tg-form" onSubmit={submit} noValidate>
-    <TextField label="Bajarilgan sana" name="performedOn" type="date" required defaultValue={today()} error={errors.performedOn} />
-    {tires ? <><p className="tg-form-note">Har bir balonni keyingi almashtirish sanasi</p><div className="tg-form-row">{tireWheels.map(wheel => <TextField key={wheel.id} label={wheel.name} name={wheel.id} type="date" error={errors[wheel.id]} />)}</div></>
-      : <TextField label="Keyingi almashtirish sanasi" name="nextDueOn" type="date" error={errors.nextDueOn} />}
-    <TextField label="Kilometr" name="odometerKm" inputMode="numeric" maxLength="9" placeholder="85000" error={errors.odometerKm} />
-    <div className="tg-field"><label htmlFor="notes">Izoh</label><textarea id="notes" name="notes" maxLength="2000" rows="3" /></div>
+  const remove = async () => {
+    setBusy(true); setFailure('');
+    try { await request('admin-delete-service-record', { recordId: existing.id }); await loadRecords(selectedVehicle.id); goBack(); }
+    catch { setFailure('Yozuvni o‘chirib bo‘lmadi. Qayta urinib ko‘ring.'); setBusy(false); }
+  };
+  const plate = splitPlate(selectedVehicle.plate);
+  return <FormPage title={existing ? `${service.name}: tahrirlash` : service.name} subtitle={`${vehicleName(selectedVehicle)} · ${plate.region} ${plate.number}`.trim()}><form className="tg-form" onSubmit={submit} noValidate>
+    <TextField label="Bajarilgan sana" name="performedOn" type="date" required defaultValue={existing?.performed_on || today()} error={errors.performedOn} />
+    {tires ? <><p className="tg-form-note">Har bir balonning keyingi almashtirish sanasi</p><div className="tg-form-row">{tireWheels.map(wheel => <div key={wheel.id} className={focusWheel === wheel.id ? 'tg-focus-wheel' : ''}><TextField label={wheel.name} name={wheel.id} type="date" defaultValue={wheels[wheel.id] || ''} autoFocus={focusWheel === wheel.id} error={errors[wheel.id]} /></div>)}</div></>
+      : <TextField label="Keyingi almashtirish sanasi" name="nextDueOn" type="date" defaultValue={existing?.next_due_on || ''} error={errors.nextDueOn} />}
+    {withKm && <TextField label="Kilometr" name="odometerKm" inputMode="numeric" maxLength="9" placeholder="85000" defaultValue={existing?.odometer_km ?? ''} error={errors.odometerKm} />}
+    <div className="tg-field"><label htmlFor="notes">Izoh</label><textarea id="notes" name="notes" maxLength="2000" rows="3" defaultValue={existing?.notes || ''} onInput={capitalizeSentence} /></div>
     <Notice kind="error">{failure}</Notice>
-    <PrimaryButton type="submit" busy={busy}>Saqlash</PrimaryButton><CancelLink />
+    <PrimaryButton type="submit" busy={busy}>Saqlash</PrimaryButton>
+    {existing && (confirmDelete
+      ? <div className="tg-confirm" role="alert"><p>Bu yozuv butunlay o‘chiriladi. Ishonchingiz komilmi?</p><div><button type="button" className="tg-danger" onClick={remove} disabled={busy}>Ha, o‘chirish</button><button type="button" className="tg-secondary" onClick={() => setConfirmDelete(false)}>Yo‘q</button></div></div>
+      : <button type="button" className="tg-link danger" onClick={() => setConfirmDelete(true)}>Yozuvni o‘chirish</button>)}
+    <CancelLink />
   </form></FormPage>;
 }

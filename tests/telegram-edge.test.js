@@ -374,3 +374,59 @@ test('admin overview counts only the latest record per vehicle and service and i
   assert.deepEqual(data.due.map(item => [item.id, item.days]), [['r1', -8], ['r2', 5]]);
   assert.equal(data.due[0].customer.first_name, 'Ali');
 });
+
+function adminRecordFixture(existingRecord) {
+  const writes = [];
+  const handler = createEdgeHandler({ env: name => ({ ...values, SUPABASE_SERVICE_ROLE_KEY: 'service-role-test-key' })[name], fetcher: async (target, options) => {
+    const url = new URL(target); const path = url.pathname;
+    if (path.endsWith('/telegram_profiles')) return new Response('', { status: 201 });
+    if (path.endsWith('/service_staff')) return json([{ role: 'admin' }]);
+    if (path.endsWith('/customers')) return json([]);
+    if (path.endsWith('/vehicles') && options.method === 'GET') return json([{ id: 'c3aa03a9-8e87-462b-9581-985f4399af6f', customer_id: 'f3aa03a9-8e87-462b-9581-985f4399af6f', make: 'Chevrolet', model: 'Tico', plate: '30A123BC' }]);
+    if (path.endsWith('/vehicles')) { const rows = JSON.parse(options.body); writes.push({ method: 'POST', table: 'vehicles', body: rows[0] }); return json(rows.map(row => ({ id: 'd4aa03a9-8e87-462b-9581-985f4399af6f', ...row }))); }
+    if (path.endsWith('/service_records') && options.method === 'GET') return json(existingRecord ? [existingRecord] : []);
+    if (path.endsWith('/service_records')) { const body = options.body ? JSON.parse(options.body) : null; writes.push({ method: options.method, search: url.search, body }); return options.method === 'DELETE' ? new Response(null, { status: 204 }) : json([{ id: existingRecord?.id || 'new', ...(Array.isArray(body) ? body[0] : body) }]); }
+    throw new Error(`unexpected ${options.method} ${path}`);
+  } });
+  return { handler, writes };
+}
+
+test('vehicles: names are capitalised, plates need a 2-digit region and 6 characters, years start at 1980', async () => {
+  const initData = await signedInitData();
+  const customerId = 'f3aa03a9-8e87-462b-9581-985f4399af6f';
+  const { handler, writes } = adminRecordFixture();
+  const create = vehicle => handler(request({ action: 'admin-create-vehicle', initData, customerId, vehicle }));
+  for (const vehicle of [
+    { make: 'daewoo', model: 'tico', plate: '11 111111111111111' },
+    { make: 'daewoo', model: 'tico', plate: '3 A123BC' },
+    { make: 'daewoo', model: 'tico', plate: '30 A123BC', productionYear: 1979 },
+    { make: 'daewoo', model: 'tico', plate: '30 A123BC', productionYear: new Date().getFullYear() + 2 },
+  ]) assert.equal((await create(vehicle)).status, 400);
+  assert.equal(writes.length, 0);
+  const response = await (await create({ make: 'chevrolet', model: 'malibu 2', plate: '30 a 123 bc', productionYear: 1980 })).json();
+  assert.deepEqual(writes[0].body, { customer_id: customerId, make: 'Chevrolet', model: 'Malibu 2', plate: '30A123BC', production_year: 1980 });
+  assert.equal(response.vehicle.plate, '30A123BC');
+});
+
+test('admins can correct or delete a mistaken record; kilometres are kept only for tires and engine oil', async () => {
+  const initData = await signedInitData();
+  const recordId = 'e5aa03a9-8e87-462b-9581-985f4399af6f';
+  const tires = adminRecordFixture({ id: recordId, vehicle_id: 'c3aa03a9-8e87-462b-9581-985f4399af6f', service_type: 'tires' });
+  const update = record => tires.handler(request({ action: 'admin-update-service-record', initData, recordId, record }));
+  assert.equal((await update({ performedOn: '2026-11-11', tirePositions: { front_left: '2026-11-01' } })).status, 400);
+  assert.equal((await update({ performedOn: '2026-11-11', odometerKm: 9999, notes: 'old ong yangi', tirePositions: { front_left: '2027-05-10', front_right: '2027-03-01', rear_left: '', rear_right: '' } })).status, 200);
+  assert.deepEqual(tires.writes.at(-1), { method: 'PATCH', search: `?id=eq.${recordId}`, body: { performed_on: '2026-11-11', next_due_on: '2027-03-01', odometer_km: 9999, notes: 'Old ong yangi', tire_positions: { front_left: '2027-05-10', front_right: '2027-03-01', rear_left: null, rear_right: null } } });
+  assert.equal((await tires.handler(request({ action: 'admin-delete-service-record', initData, recordId }))).status, 200);
+  assert.equal(tires.writes.at(-1).method, 'DELETE');
+  // Tint ignores kilometres even if they are sent.
+  const tint = adminRecordFixture({ id: recordId, vehicle_id: 'c3aa03a9-8e87-462b-9581-985f4399af6f', service_type: 'tint' });
+  await tint.handler(request({ action: 'admin-update-service-record', initData, recordId, record: { performedOn: '2026-11-11', nextDueOn: '2027-11-11', odometerKm: 85000 } }));
+  assert.equal(tint.writes.at(-1).body.odometer_km, null);
+  const created = adminRecordFixture();
+  await created.handler(request({ action: 'admin-create-service-record', initData, vehicleId: 'c3aa03a9-8e87-462b-9581-985f4399af6f', record: { serviceType: 'antifreeze', performedOn: '2026-11-11', odometerKm: 85000 } }));
+  assert.equal(created.writes.at(-1).body[0].odometer_km, null);
+  // Unknown records and customers are refused.
+  const missing = adminRecordFixture(null);
+  assert.equal((await missing.handler(request({ action: 'admin-delete-service-record', initData, recordId }))).status, 404);
+  assert.equal((await missing.handler(request({ action: 'admin-delete-service-record', initData, recordId: 'nope' }))).status, 400);
+});

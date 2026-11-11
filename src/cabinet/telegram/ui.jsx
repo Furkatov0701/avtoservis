@@ -1,6 +1,6 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { formatDayShort, formatKm, latestOdometer, splitPlate, vehicleName } from './format';
+import { formatDayShort, formatKm, latestOdometer, sentenceCase, splitPlate, titleCase, vehicleName } from './format';
 
 // Outline icons drawn to match the green design (24px grid, round strokes).
 const paths = {
@@ -108,4 +108,56 @@ export function Failure({ title, onRetry }) {
 
 export function DateCard({ children, label }) {
   return <div className="tg-date-card"><Icon name="calendar" size={22} /><span>{label && <small>{label}</small>}<strong>{children}</strong></span></div>;
+}
+
+// Capitalises while typing without moving the caret (the text length never changes).
+function recase(event, transform) {
+  const input = event.target;
+  const next = transform(input.value);
+  if (next === input.value) return;
+  const { selectionStart, selectionEnd } = input;
+  input.value = next;
+  try { input.setSelectionRange(selectionStart, selectionEnd); } catch { /* date/number inputs */ }
+}
+export const capitalizeWords = event => recase(event, titleCase);
+export const capitalizeSentence = event => recase(event, sentenceCase);
+
+// Text field with a suggestion list (combobox pattern): arrows, Enter and Escape work; tapping an option picks it.
+export function Combobox({ label, name, required, value, onChange, suggestions, onPick, error, placeholder, hint }) {
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(-1);
+  const listId = useId();
+  const items = open ? suggestions : [];
+  const pick = item => { onPick(item); setOpen(false); setActive(-1); };
+  const onKeyDown = event => {
+    if (!items.length) return;
+    if (event.key === 'ArrowDown') { event.preventDefault(); setActive(i => (i + 1) % items.length); }
+    else if (event.key === 'ArrowUp') { event.preventDefault(); setActive(i => (i <= 0 ? items.length - 1 : i - 1)); }
+    else if (event.key === 'Enter' && active >= 0) { event.preventDefault(); pick(items[active]); }
+    else if (event.key === 'Escape') { setOpen(false); setActive(-1); }
+  };
+  return <div className="tg-field tg-combo">
+    <label htmlFor={name}>{label}{required && ' *'}</label>
+    <input id={name} name={name} value={value} placeholder={placeholder} autoComplete="off" autoCapitalize="words" role="combobox" aria-expanded={items.length > 0} aria-controls={listId} aria-autocomplete="list" aria-activedescendant={active >= 0 && items[active] ? `${listId}-${active}` : undefined} aria-invalid={error ? true : undefined} aria-describedby={error ? `${name}-error` : undefined}
+      onChange={event => { onChange(titleCase(event.target.value)); setOpen(true); setActive(-1); }} onFocus={() => setOpen(true)} onBlur={() => setOpen(false)} onKeyDown={onKeyDown} />
+    {items.length > 0 && <ul className="tg-options" id={listId} role="listbox" aria-label={`${label}: tavsiyalar`}>{items.map((item, index) => <li key={`${item.make}-${item.model}-${index}`} id={`${listId}-${index}`} role="option" aria-selected={index === active} className={index === active ? 'active' : ''} onMouseDown={event => { event.preventDefault(); pick(item); }}><strong>{item.label}</strong>{item.hint && <small>{item.hint}</small>}</li>)}</ul>}
+    {error && <p className="tg-field-error" id={`${name}-error`}>{error}</p>}
+    {hint && !error && <p className="tg-field-hint">{hint}</p>}
+  </div>;
+}
+
+// Plate entry shaped like a real Uzbek plate: [30 | A123BC | UZ].
+export function PlateInput({ region, body, onRegion, onBody, error }) {
+  const bodyRef = useRef(null);
+  return <div className="tg-field">
+    <span className="tg-label" id="plate-label">Davlat raqami *</span>
+    <div className={`tg-plate-input ${error ? 'invalid' : ''}`} role="group" aria-labelledby="plate-label">
+      <input aria-label="Hudud kodi (2 raqam)" inputMode="numeric" placeholder="30" value={region} aria-invalid={error ? true : undefined}
+        onChange={event => { const next = event.target.value.replace(/\D/g, '').slice(0, 2); onRegion(next); if (next.length === 2) bodyRef.current?.focus(); }} />
+      <input ref={bodyRef} aria-label="Raqam (6 belgi)" placeholder="A123BC" autoCapitalize="characters" autoComplete="off" value={body} aria-invalid={error ? true : undefined} aria-describedby={error ? 'plate-error' : 'plate-hint'}
+        onChange={event => onBody(event.target.value.toUpperCase().replace(/[^0-9A-Z]/g, '').slice(0, 6))} />
+      <span className="tg-plate-uz" aria-hidden="true"><i /><b>UZ</b></span>
+    </div>
+    {error ? <p className="tg-field-error" id="plate-error">{error}</p> : <p className="tg-field-hint" id="plate-hint">Masalan: 30 | A123BC yoki 01 | 123ABC</p>}
+  </div>;
 }

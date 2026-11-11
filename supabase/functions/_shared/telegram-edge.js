@@ -149,6 +149,20 @@ export function normalizeUzPhone(value) {
   return /^998\d{9}$/.test(full) ? { digits: full, phone: `+${full}` } : null;
 }
 
+// "chevrolet malibu" -> "Chevrolet Malibu": first letter of every word upper-cased, the rest kept as typed (BMW stays BMW).
+export function titleCase(value) {
+  return typeof value === 'string' ? value.replace(/(^|[\s-])(\S)/g, (_, gap, letter) => gap + letter.toUpperCase()) : '';
+}
+
+// Uzbek plate: two-digit region + six letters/digits, stored without spaces ("30A123BC").
+export function normalizePlate(value) {
+  const plate = typeof value === 'string' ? value.toUpperCase().replace(/[^0-9A-Z]/g, '') : '';
+  return /^\d{2}[0-9A-Z]{6}$/.test(plate) ? plate : null;
+}
+
+export const MIN_PRODUCTION_YEAR = 1980;
+const odometerServices = new Set(['tires', 'engine_oil']);
+
 function customerView(row) {
   return { id: row.id, firstName: row.first_name, lastName: row.last_name, phone: row.phone };
 }
@@ -190,8 +204,8 @@ async function miniAppSession(config, body, fetcher) {
 async function customerUpdateProfile(config, body, fetcher) {
   const actor = await miniAppActor(config, body, fetcher);
   if (!actor.customer) throw { status: 403, code: 'customer_required' };
-  const firstName = cleanText(body?.profile?.firstName, 80);
-  const lastName = cleanText(body?.profile?.lastName, 80);
+  const firstName = titleCase(cleanText(body?.profile?.firstName, 80));
+  const lastName = titleCase(cleanText(body?.profile?.lastName, 80));
   if (!firstName) throw { status: 400, code: 'invalid_profile' };
   // The phone number is not editable here: it changes only through a verified Telegram contact.
   const rows = await databaseRequest(config, `/rest/v1/customers?id=eq.${encodeURIComponent(actor.customer.id)}`, {
@@ -220,8 +234,8 @@ async function adminDashboard(config, body, fetcher) {
 
 async function adminCreateCustomer(config, body, fetcher) {
   await requireAdmin(config, body, fetcher);
-  const firstName = cleanText(body?.customer?.firstName, 80);
-  const lastName = cleanText(body?.customer?.lastName, 80);
+  const firstName = titleCase(cleanText(body?.customer?.firstName, 80));
+  const lastName = titleCase(cleanText(body?.customer?.lastName, 80));
   const phone = normalizeUzPhone(cleanText(body?.customer?.phone, 32));
   // The phone number is required: it is how the customer's Telegram account is linked later.
   if (!firstName || !phone) throw { status: 400, code: 'invalid_customer' };
@@ -289,12 +303,13 @@ async function adminOverview(config, body, fetcher) {
 async function adminCreateVehicle(config, body, fetcher) {
   await requireAdmin(config, body, fetcher);
   const customerId = body?.customerId;
-  const make = cleanText(body?.vehicle?.make, 80);
-  const model = cleanText(body?.vehicle?.model, 100);
-  const plate = cleanText(body?.vehicle?.plate, 24).toUpperCase();
+  const make = titleCase(cleanText(body?.vehicle?.make, 80));
+  const model = titleCase(cleanText(body?.vehicle?.model, 100));
+  const plate = normalizePlate(cleanText(body?.vehicle?.plate, 24));
   const suppliedYear = cleanText(String(body?.vehicle?.productionYear ?? ''), 4);
   const productionYear = suppliedYear ? Number(suppliedYear) : null;
-  if (!validUuid(customerId) || !model || !plate || (productionYear !== null && (!Number.isInteger(productionYear) || productionYear < 1900 || productionYear > 2100))) throw { status: 400, code: 'invalid_vehicle' };
+  const maxYear = Number(serviceToday().slice(0, 4)) + 1;
+  if (!validUuid(customerId) || !model || !plate || (productionYear !== null && (!Number.isInteger(productionYear) || productionYear < MIN_PRODUCTION_YEAR || productionYear > maxYear))) throw { status: 400, code: 'invalid_vehicle' };
   const rows = await databaseRequest(config, '/rest/v1/vehicles', {
     method: 'POST', headers: { 'content-type': 'application/json', prefer: 'return=representation' },
     body: JSON.stringify([{ customer_id: customerId, make, model, plate, production_year: productionYear }]),
@@ -323,36 +338,71 @@ async function adminServiceRecords(config, body, fetcher) {
   return { ok: true, vehicle, records: Array.isArray(records) ? records : [] };
 }
 
-async function adminCreateServiceRecord(config, body, fetcher) {
-  await requireAdmin(config, body, fetcher);
-  const vehicle = await vehicleForAdmin(config, body?.vehicleId, fetcher);
-  const serviceType = cleanText(body?.record?.serviceType, 32);
-  const performedOn = cleanText(body?.record?.performedOn, 10);
-  let nextDueOn = cleanText(body?.record?.nextDueOn, 10) || null;
-  const notes = cleanText(body?.record?.notes, 2000);
-  const odometerText = cleanText(String(body?.record?.odometerKm ?? ''), 12);
-  const odometerKm = odometerText ? Number(odometerText) : null;
+// Validates the editable part of a service record. Shared by create and update.
+function parseRecordInput(serviceType, input) {
+  const performedOn = cleanText(input?.performedOn, 10);
+  let nextDueOn = cleanText(input?.nextDueOn, 10) || null;
+  const notes = cleanText(input?.notes, 2000);
+  const odometerText = cleanText(String(input?.odometerKm ?? ''), 12);
+  // Kilometres matter only for tires and engine oil; other services never store them.
+  const odometerKm = odometerServices.has(serviceType) && odometerText ? Number(odometerText) : null;
   if (!serviceTypes.has(serviceType) || !validDate(performedOn) || (nextDueOn && (!validDate(nextDueOn) || nextDueOn < performedOn)) || (odometerKm !== null && (!Number.isInteger(odometerKm) || odometerKm < 0))) throw { status: 400, code: 'invalid_service_record' };
   // Tires: the next replacement date of each wheel. Other services never store wheel data.
   let tirePositions = null;
-  if (serviceType === 'tires' && body?.record?.tirePositions !== undefined && body.record.tirePositions !== null) {
-    const supplied = body.record.tirePositions;
+  if (serviceType === 'tires' && input?.tirePositions !== undefined && input.tirePositions !== null) {
+    const supplied = input.tirePositions;
     if (typeof supplied !== 'object' || Array.isArray(supplied)) throw { status: 400, code: 'invalid_service_record' };
     const wheels = Object.fromEntries(tirePositionKeys.map(key => [key, cleanText(supplied[key] ?? '', 10) || null]));
     if (Object.values(wheels).some(date => date && (!validDate(date) || date < performedOn))) throw { status: 400, code: 'invalid_service_record' };
     const dates = Object.values(wheels).filter(Boolean).sort();
     if (dates.length) {
       tirePositions = wheels;
-      if (!nextDueOn) nextDueOn = dates[0];
+      // The service is due when the first wheel is due.
+      nextDueOn = dates[0];
     }
   }
+  const sentence = notes ? notes[0].toUpperCase() + notes.slice(1) : '';
+  return { performed_on: performedOn, next_due_on: nextDueOn, odometer_km: odometerKm, notes: sentence, tire_positions: tirePositions };
+}
+
+async function adminCreateServiceRecord(config, body, fetcher) {
+  await requireAdmin(config, body, fetcher);
+  const vehicle = await vehicleForAdmin(config, body?.vehicleId, fetcher);
+  const serviceType = cleanText(body?.record?.serviceType, 32);
+  const fields = parseRecordInput(serviceType, body?.record);
   const rows = await databaseRequest(config, '/rest/v1/service_records', {
     method: 'POST', headers: writeJson,
-    body: JSON.stringify([{ vehicle_id: vehicle.id, service_type: serviceType, performed_on: performedOn, next_due_on: nextDueOn, odometer_km: odometerKm, notes, tire_positions: tirePositions }]),
+    body: JSON.stringify([{ vehicle_id: vehicle.id, service_type: serviceType, ...fields }]),
   }, fetcher);
   const record = firstRow(rows);
   if (!record) throw { status: 502, code: 'database_invalid_response' };
   return { ok: true, record };
+}
+
+async function recordForAdmin(config, recordId, fetcher) {
+  if (!validUuid(recordId)) throw { status: 400, code: 'invalid_service_record' };
+  const record = firstRow(await databaseRequest(config, `/rest/v1/service_records?id=eq.${encodeURIComponent(recordId)}&select=id,vehicle_id,service_type&limit=1`, { method: 'GET', headers: readHeaders }, fetcher));
+  if (!record) throw { status: 404, code: 'record_not_found' };
+  return record;
+}
+
+// Corrects a mistaken record. The service type and vehicle never change.
+async function adminUpdateServiceRecord(config, body, fetcher) {
+  await requireAdmin(config, body, fetcher);
+  const existing = await recordForAdmin(config, body?.recordId, fetcher);
+  const fields = parseRecordInput(existing.service_type, body?.record);
+  const record = firstRow(await databaseRequest(config, `/rest/v1/service_records?id=eq.${encodeURIComponent(existing.id)}`, {
+    method: 'PATCH', headers: writeJson, body: JSON.stringify(fields),
+  }, fetcher));
+  if (!record) throw { status: 404, code: 'record_not_found' };
+  return { ok: true, record };
+}
+
+async function adminDeleteServiceRecord(config, body, fetcher) {
+  await requireAdmin(config, body, fetcher);
+  const existing = await recordForAdmin(config, body?.recordId, fetcher);
+  await databaseRequest(config, `/rest/v1/service_records?id=eq.${encodeURIComponent(existing.id)}`, { method: 'DELETE', headers: { prefer: 'return=minimal' } }, fetcher);
+  return { ok: true, deleted: existing.id };
 }
 
 async function customerVehicles(config, body, fetcher) {
@@ -383,8 +433,8 @@ async function linkContact(config, update, fetcher) {
   const phone = normalizeUzPhone(message.contact.phone_number);
   if (!phone) return contactReply(config, chatId, 'Hozircha faqat O‘zbekiston (+998) raqamlari qabul qilinadi.');
   try {
-    const firstName = cleanText(from.first_name, 80) || 'Mijoz';
-    const lastName = cleanText(from.last_name, 80);
+    const firstName = titleCase(cleanText(from.first_name, 80)) || 'Mijoz';
+    const lastName = titleCase(cleanText(from.last_name, 80));
     await databaseRequest(config, '/rest/v1/telegram_profiles?on_conflict=telegram_user_id', {
       method: 'POST', headers: { 'content-type': 'application/json', prefer: 'resolution=merge-duplicates,return=minimal' },
       body: JSON.stringify([{ telegram_user_id: from.id, first_name: firstName, last_name: lastName, username: cleanText(from.username, 32), language_code: cleanText(from.language_code, 16) }]),
@@ -428,6 +478,8 @@ async function miniAppAction(config, body, fetcher) {
   if (body.action === 'admin-create-vehicle') return adminCreateVehicle(config, body, fetcher);
   if (body.action === 'admin-service-records') return adminServiceRecords(config, body, fetcher);
   if (body.action === 'admin-create-service-record') return adminCreateServiceRecord(config, body, fetcher);
+  if (body.action === 'admin-update-service-record') return adminUpdateServiceRecord(config, body, fetcher);
+  if (body.action === 'admin-delete-service-record') return adminDeleteServiceRecord(config, body, fetcher);
   if (body.action === 'customer-vehicles') return customerVehicles(config, body, fetcher);
   if (body.action === 'customer-update-profile') return customerUpdateProfile(config, body, fetcher);
   throw { status: 400, code: 'invalid_action' };
@@ -460,14 +512,14 @@ export function createEdgeHandler({ env, fetcher = fetch }) {
         return send(200, await setup(config, await readJson(request, 4096), fetcher));
       }
       const body = await readJson(request, 65536);
-      if (['miniapp-session', 'admin-dashboard', 'admin-overview', 'admin-create-customer', 'admin-vehicles', 'admin-create-vehicle', 'admin-service-records', 'admin-create-service-record', 'customer-vehicles', 'customer-update-profile'].includes(body?.action)) return send(200, await miniAppAction(config, body, fetcher));
+      if (['miniapp-session', 'admin-dashboard', 'admin-overview', 'admin-create-customer', 'admin-vehicles', 'admin-create-vehicle', 'admin-service-records', 'admin-create-service-record', 'admin-update-service-record', 'admin-delete-service-record', 'customer-vehicles', 'customer-update-profile'].includes(body?.action)) return send(200, await miniAppAction(config, body, fetcher));
       const webhookSecret = await deriveWebhookSecret(config.token, config.webhookUrl);
       if (!(await matchesSecret(request.headers.get('x-telegram-bot-api-secret-token'), webhookSecret))) return send(401, { error: 'unauthorized' });
       if (!Number.isSafeInteger(body?.update_id) || body.update_id < 0) return send(400, { error: 'invalid_update' });
       if (body.message?.contact && typeof body.message.contact === 'object') return send(200, await linkContact(config, body, fetcher));
       return send(200, replyForUpdate(body, config) || { ok: true });
     } catch (error) {
-    const known = ['json_required', 'body_too_large', 'invalid_json', 'invalid_action', 'invalid_customer', 'customer_exists', 'customer_required', 'invalid_profile', 'invalid_vehicle', 'invalid_service_record', 'vehicle_not_found', 'admin_required', 'telegram_connection_failed', 'telegram_invalid_response', 'telegram_request_failed', 'bot_username_mismatch', 'invalid_init_data', 'telegram_identity_invalid', 'telegram_identity_expired', 'invalid_telegram_user', 'server_database_required', 'database_connection_failed', 'database_request_failed', 'database_invalid_response'];
+    const known = ['json_required', 'body_too_large', 'invalid_json', 'invalid_action', 'invalid_customer', 'customer_exists', 'customer_required', 'invalid_profile', 'invalid_vehicle', 'invalid_service_record', 'record_not_found', 'vehicle_not_found', 'admin_required', 'telegram_connection_failed', 'telegram_invalid_response', 'telegram_request_failed', 'bot_username_mismatch', 'invalid_init_data', 'telegram_identity_invalid', 'telegram_identity_expired', 'invalid_telegram_user', 'server_database_required', 'database_connection_failed', 'database_request_failed', 'database_invalid_response'];
       if (!known.includes(error?.code)) return send(500, { error: 'internal_error' });
       return send(error.status, { error: error.code, ...(error.stage ? { stage: error.stage } : {}) });
     }

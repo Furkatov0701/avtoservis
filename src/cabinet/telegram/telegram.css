@@ -248,3 +248,36 @@ html:has(.tg-app) { background: var(--sand-bg); }
 .tg-guide li { margin-bottom: 10px; padding-left: 4px; }
 .tg-guide p { color: var(--tg-muted); }
 .tg-app .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* Autocomplete */
+.tg-combo { position: relative; }
+.tg-options { position: absolute; z-index: 8; top: calc(100% + 4px); left: 0; right: 0; min-width: 190px; max-height: 260px; overflow-y: auto; margin: 0; padding: 5px; list-style: none; border: 1px solid var(--sand-line); border-radius: 13px; background: var(--sand-card); box-shadow: 0 12px 28px rgb(18 58 64 / .16); }
+.tg-options li { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; min-height: 42px; padding: 10px 11px; border-radius: 9px; cursor: pointer; }
+.tg-options li strong { font-size: 14px; font-weight: 700; color: var(--tg-ink); }
+.tg-options li small { font-size: 11px; font-weight: 700; color: var(--tg-muted); }
+.tg-options li.active, .tg-options li:hover { background: var(--t100); }
+.tg-form-row > .tg-combo:last-child .tg-options { left: auto; }
+
+/* Plate input: [30 | A123BC | UZ] */
+.tg-plate-input { display: flex; align-items: stretch; height: 54px; overflow: hidden; border: 2px solid var(--tg-ink); border-radius: 10px; background: #fff; }
+.tg-plate-input.invalid { border-color: var(--late); }
+.tg-plate-input:focus-within { box-shadow: 0 0 0 3px rgb(47 111 120 / .18); }
+.tg-plate-input input { min-width: 0; min-height: 0; height: 100%; padding: 0; border: 0; border-radius: 0; box-shadow: none !important; outline: 0; background: transparent; color: var(--tg-ink); font-family: Arial, sans-serif; font-weight: 700; text-align: center; text-transform: uppercase; letter-spacing: 2px; }
+.tg-plate-input input::placeholder { color: #c3c7c1; }
+.tg-plate-input input:first-child { width: 64px; flex: none; border-right: 2px solid var(--tg-ink); font-size: 22px; }
+.tg-plate-input input:nth-child(2) { flex: 1; font-size: 22px; }
+.tg-plate-uz { display: grid; place-items: center; align-content: center; gap: 3px; width: 46px; flex: none; border-left: 2px solid var(--tg-ink); }
+.tg-plate-uz i { width: 20px; height: 13px; border-radius: 2px; background: linear-gradient(#1eb5e5 0 34%, #fff 34% 66%, #1eb53a 66%); box-shadow: 0 0 0 1px rgb(0 0 0 / .15); }
+.tg-plate-uz b { font: 800 11px Arial, sans-serif; color: var(--t800); }
+
+/* Edit controls */
+.tg-wheel { padding-right: 38px; }
+.tg-wheel-edit, .tg-hist-edit { display: grid; place-items: center; width: 32px; height: 32px; flex-shrink: 0; border-radius: 9px; background: var(--t100); color: var(--t800); text-decoration: none; }
+.tg-wheel-edit { position: absolute; top: 7px; right: 7px; }
+.tg-hist-edit { margin-left: 4px; }
+.tg-focus-wheel input { border-color: var(--t600); box-shadow: 0 0 0 3px rgb(47 111 120 / .15); }
+.tg-link.danger { color: var(--late-tx); }
+.tg-confirm { display: grid; gap: 10px; padding: 13px; border-radius: 13px; background: var(--late-bg); color: var(--late-tx); font-size: 13px; font-weight: 600; }
+.tg-confirm > div { display: flex; gap: 8px; }
+.tg-danger { flex: 1; min-height: 44px; border: 0; border-radius: 11px; background: var(--late); color: #fff; font: inherit; font-size: 14px; font-weight: 800; }
+.tg-confirm .tg-secondary { flex: 1; }
