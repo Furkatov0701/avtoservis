@@ -104,6 +104,23 @@ const malibu = () => ({ id: ids(1), customer_id: ids(11), make: 'Chevrolet', mod
 
 test.use({ viewport: { width: 390, height: 844 } });
 
+const MONTHS = ['YANVAR', 'FEVRAL', 'MART', 'APREL', 'MAY', 'IYUN', 'IYUL', 'AVGUST', 'SENTABR', 'OKTABR', 'NOYABR', 'DEKABR'];
+// Picks a date on the open drum picker (Kun · Oy · Yil) and confirms it.
+async function spinTo(page, iso) {
+  const [y, m, dd] = iso.split('-').map(Number);
+  const sheet = page.getByRole('dialog');
+  await sheet.getByRole('listbox', { name: 'Yil' }).getByRole('option', { name: String(y), exact: true }).click();
+  await sheet.getByRole('listbox', { name: 'Oy' }).getByRole('option', { name: MONTHS[m - 1], exact: true }).click();
+  await sheet.getByRole('listbox', { name: 'Kun' }).getByRole('option', { name: String(dd), exact: true }).click();
+  await expect(sheet.getByRole('status')).toContainText(`${dd} ${MONTHS[m - 1]} ${y}`);
+  await sheet.getByRole('button', { name: 'Tanlash' }).click();
+  await expect(sheet).toHaveCount(0);
+}
+async function pickDate(page, field, iso) {
+  await page.getByRole('button', { name: new RegExp(`^${field}:`) }).click();
+  await spinTo(page, iso);
+}
+
 test('admin: home, customers table, adding a customer, a car and a tire record', async ({ page }) => {
   const errors = []; page.on('pageerror', error => errors.push(error.message));
   const customers = Array.from({ length: 10 }, (_, i) => ({ id: ids(11 + i), first_name: i % 2 ? 'Aliyev' : 'Paloncha', last_name: i % 2 ? 'Valijon' : 'Palonchayev', phone: `+99890000000${i}`, linked: i === 0 }));
@@ -195,11 +212,16 @@ test('admin: home, customers table, adding a customer, a car and a tire record',
   await page.screenshot({ path: `${SHOTS}/admin-balonlar.png` });
   await page.getByRole('link', { name: 'Ma’lumot kiritish' }).click();
   await expect(page.getByLabel('Kilometr')).toBeVisible();
-  await page.getByLabel('Bajarilgan sana *').fill(d(0));
-  await page.getByLabel('Old chap').fill(d(-5));
+  // Dates are shown in words; the performed date defaults to today.
+  await expect(page.getByRole('button', { name: /^Bajarilgan sana: \d+ [A-Z]+ \d{4}$/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Old chap: tanlanmagan' })).toBeVisible();
+  await pickDate(page, 'Old chap', d(-5));
   await page.getByRole('button', { name: 'Saqlash' }).click();
   await expect(page.getByText('Bajarilgan sanadan oldin bo‘lmasin.')).toBeVisible();
-  await page.getByLabel('Old chap').fill(`${Y + 1}-01-15`);
+  await page.getByRole('button', { name: /^Old chap:/ }).click();
+  await page.screenshot({ path: `${SHOTS}/admin-sana-baraban.png` });
+  await spinTo(page, `${Y + 1}-01-15`);
+  await expect(page.getByRole('button', { name: `Old chap: 15 YANVAR ${Y + 1}` })).toBeVisible();
   await page.screenshot({ path: `${SHOTS}/admin-xizmat-yozuvi.png` });
   await page.getByRole('button', { name: 'Saqlash' }).click();
   await expect(page.locator('.tg-wheel.front_left')).toContainText(`15 YANVAR ${Y + 1}`);
@@ -209,10 +231,11 @@ test('admin: home, customers table, adding a customer, a car and a tire record',
   // Each wheel has an edit button: correct the front-right date of the saved record.
   await page.getByRole('link', { name: 'Old o‘ng: tahrirlash' }).click();
   await expect(page.getByRole('heading', { name: 'Balonlar: tahrirlash' })).toBeVisible();
-  await expect(page.getByLabel('Old chap')).toHaveValue(`${Y + 1}-01-15`);
-  await expect(page.getByLabel('Old o‘ng')).toBeFocused();
-  await page.getByLabel('Old o‘ng').fill(`${Y + 1}-02-20`);
+  await expect(page.getByRole('button', { name: `Old chap: 15 YANVAR ${Y + 1}` })).toBeVisible();
+  // The tapped wheel's picker opens straight away.
+  await expect(page.getByRole('dialog', { name: 'Old o‘ng — keyingi sana' })).toBeVisible();
   await page.screenshot({ path: `${SHOTS}/admin-balon-tahrirlash.png` });
+  await spinTo(page, `${Y + 1}-02-20`);
   await page.getByRole('button', { name: 'Saqlash' }).click();
   await expect(page.locator('.tg-wheel.front_right')).toContainText(`20 FEVRAL ${Y + 1}`);
   expect(calls.find(call => call.action === 'admin-update-service-record').record.tirePositions.front_right).toBe(`${Y + 1}-02-20`);
@@ -221,6 +244,19 @@ test('admin: home, customers table, adding a customer, a car and a tire record',
   await page.getByLabel('Xizmat turini tanlang').selectOption('tint');
   await page.getByRole('link', { name: 'Ma’lumot kiritish' }).click();
   await expect(page.getByLabel('Kilometr')).toHaveCount(0);
+  // Quick choice "+1 yil" counts from the performed date (today); Escape closes without changes.
+  await page.getByRole('button', { name: /^Keyingi almashtirish sanasi:/ }).click();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Keyingi almashtirish sanasi: tanlanmagan' })).toBeVisible();
+  await page.getByRole('button', { name: /^Keyingi almashtirish sanasi:/ }).click();
+  await page.getByRole('dialog').getByRole('button', { name: '+1 yil' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Tanlash' }).click();
+  // Same rule as the app: 29 February + 1 year becomes 28 February.
+  const [, tm, td] = d(0).split('-').map(Number);
+  const nextYear = `${Y + 1}-${String(tm).padStart(2, '0')}-${String(Math.min(td, new Date(Y + 1, tm, 0).getDate())).padStart(2, '0')}`;
+  const [ny, nm, nd] = nextYear.split('-').map(Number);
+  await expect(page.getByRole('button', { name: `Keyingi almashtirish sanasi: ${nd} ${MONTHS[nm - 1]} ${ny}` })).toBeVisible();
   await page.getByRole('button', { name: 'Bekor qilish' }).click();
   const tintRows = page.locator('.tg-hist');
   await expect(tintRows).toHaveCount(1);

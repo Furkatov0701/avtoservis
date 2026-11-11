@@ -4,6 +4,7 @@ import { normalizePhone } from '../validation';
 import { useCabinet } from './context';
 import { AddButton, capitalizeSentence, capitalizeWords, Combobox, Empty, Failure, FormPage, Notice, PlateInput, PrimaryButton, SearchBar, TextField } from './ui';
 import { makeSuggestions, modelSuggestions } from './cars';
+import { addDays, addMonths, DateField } from './datepicker';
 import { formatPhone, fullName, initials, maskPhoneInput, MAX_KM, MIN_PRODUCTION_YEAR, maxProductionYear, ODOMETER_SERVICES, PLATE_BODY, recordsFor, sentenceCase, serviceById, splitPlate, tireWheels, titleCase, vehicleName } from './format';
 
 const PAGE = 6;
@@ -139,6 +140,7 @@ export function RecordForm() {
   const [failure, setFailure] = useState('');
   const [busy, setBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [performed, setPerformed] = useState(null);
   const service = serviceById[serviceId];
   const records = selectedVehicle ? recordCache[selectedVehicle.id]?.list || selectedVehicle.service_records || [] : [];
   const existing = recordId ? recordsFor(records, serviceId).find(record => record.id === recordId) : null;
@@ -146,22 +148,28 @@ export function RecordForm() {
   const tires = service.id === 'tires';
   const withKm = ODOMETER_SERVICES.has(service.id);
   const wheels = existing?.tire_positions || {};
+  const todayIso = today();
+  const performedOn = performed ?? existing?.performed_on ?? todayIso;
+  // Quick choices: the performed date offers today/yesterday; next dates count from the performed date.
+  const performedQuick = [{ label: 'Bugun', value: todayIso }, { label: 'Kecha', value: addDays(todayIso, -1) }];
+  const clearError = name => setErrors(current => (current[name] ? { ...current, [name]: undefined } : current));
+  const nextQuick = [{ label: '+3 oy', value: addMonths(performedOn, 3) }, { label: '+6 oy', value: addMonths(performedOn, 6) }, { label: '+1 yil', value: addMonths(performedOn, 12) }];
   const submit = async event => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     const value = name => String(form.get(name) || '').trim();
-    const performedOn = value('performedOn');
-    const record = { serviceType: service.id, performedOn, notes: sentenceCase(value('notes')) };
+    const performedValue = value('performedOn');
+    const record = { serviceType: service.id, performedOn: performedValue, notes: sentenceCase(value('notes')) };
     if (withKm) record.odometerKm = value('odometerKm').replace(/\s/g, '');
     const found = {};
-    if (!performedOn) found.performedOn = 'Bajarilgan sanani kiriting.';
+    if (!performedValue) found.performedOn = 'Bajarilgan sanani kiriting.';
     if (tires) {
       record.tirePositions = Object.fromEntries(tireWheels.map(wheel => [wheel.id, value(wheel.id)]));
-      tireWheels.forEach(wheel => { if (record.tirePositions[wheel.id] && performedOn && record.tirePositions[wheel.id] < performedOn) found[wheel.id] = 'Bajarilgan sanadan oldin bo‘lmasin.'; });
+      tireWheels.forEach(wheel => { if (record.tirePositions[wheel.id] && performedValue && record.tirePositions[wheel.id] < performedValue) found[wheel.id] = 'Bajarilgan sanadan oldin bo‘lmasin.'; });
       if (!Object.values(record.tirePositions).some(Boolean)) found.front_left = 'Kamida bitta balon sanasini kiriting.';
     } else {
       record.nextDueOn = value('nextDueOn');
-      if (record.nextDueOn && performedOn && record.nextDueOn < performedOn) found.nextDueOn = 'Bajarilgan sanadan oldin bo‘lmasin.';
+      if (record.nextDueOn && performedValue && record.nextDueOn < performedValue) found.nextDueOn = 'Bajarilgan sanadan oldin bo‘lmasin.';
     }
     if (withKm && record.odometerKm && (!/^\d{1,7}$/.test(record.odometerKm) || Number(record.odometerKm) > MAX_KM)) found.odometerKm = 'Kilometrni butun son bilan kiriting.';
     setErrors(found); setFailure('');
@@ -182,9 +190,9 @@ export function RecordForm() {
   };
   const plate = splitPlate(selectedVehicle.plate);
   return <FormPage title={existing ? `${service.name}: tahrirlash` : service.name} subtitle={`${vehicleName(selectedVehicle)} · ${plate.region} ${plate.number}`.trim()}><form className="tg-form" onSubmit={submit} noValidate>
-    <TextField label="Bajarilgan sana" name="performedOn" type="date" required defaultValue={existing?.performed_on || today()} error={errors.performedOn} />
-    {tires ? <><p className="tg-form-note">Har bir balonning keyingi almashtirish sanasi</p><div className="tg-form-row">{tireWheels.map(wheel => <div key={wheel.id} className={focusWheel === wheel.id ? 'tg-focus-wheel' : ''}><TextField label={wheel.name} name={wheel.id} type="date" defaultValue={wheels[wheel.id] || ''} autoFocus={focusWheel === wheel.id} error={errors[wheel.id]} /></div>)}</div></>
-      : <TextField label="Keyingi almashtirish sanasi" name="nextDueOn" type="date" defaultValue={existing?.next_due_on || ''} error={errors.nextDueOn} />}
+    <DateField label="Bajarilgan sana" name="performedOn" required defaultValue={performedOn} quick={performedQuick} sheetTitle="Bajarilgan sana" onChange={value => { setPerformed(value); clearError('performedOn'); }} error={errors.performedOn} />
+    {tires ? <><p className="tg-form-note">Har bir balonning keyingi almashtirish sanasi</p><div className="tg-form-row">{tireWheels.map(wheel => <div key={wheel.id} className={focusWheel === wheel.id ? 'tg-focus-wheel' : ''}><DateField label={wheel.name} name={wheel.id} defaultValue={wheels[wheel.id] || ''} start={addMonths(performedOn, 6)} quick={nextQuick} sheetTitle={`${wheel.name} — keyingi sana`} autoOpen={focusWheel === wheel.id} onChange={() => clearError(wheel.id)} error={errors[wheel.id]} /></div>)}</div></>
+      : <DateField label="Keyingi almashtirish sanasi" name="nextDueOn" defaultValue={existing?.next_due_on || ''} start={addMonths(performedOn, 6)} quick={nextQuick} sheetTitle="Keyingi almashtirish sanasi" onChange={() => clearError('nextDueOn')} error={errors.nextDueOn} />}
     {withKm && <TextField label="Kilometr" name="odometerKm" inputMode="numeric" maxLength="9" placeholder="85000" defaultValue={existing?.odometer_km ?? ''} error={errors.odometerKm} />}
     <div className="tg-field"><label htmlFor="notes">Izoh</label><textarea id="notes" name="notes" maxLength="2000" rows="3" defaultValue={existing?.notes || ''} onInput={capitalizeSentence} /></div>
     <Notice kind="error">{failure}</Notice>
