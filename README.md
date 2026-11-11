@@ -128,6 +128,7 @@ Testlar Telegram initData tekshiruvi, Edge Function xavfsizligi, admin ruxsatlar
 - `supabase/functions/_shared/telegram-edge.js` — Edge Function manbasi.
 - `supabase/dashboard/telegram-bot.ts` — dashboardga qo‘yiladigan yig‘ilgan fayl.
 - `docs/qarorlar.md` — biznes/dizayn qarorlari tarixi.
+- `docs/dizayn/` — tasdiqlangan dizayn tizimi: ranglar, qoidalar va barcha ekranlar.
 - `docs/supabase-telegram-deploy.md` — Supabase deploy yo‘riqnomasi.
 
 ## Yangilanishni ishga tushirish tartibi (2026-11-11)
