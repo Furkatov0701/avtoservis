@@ -274,6 +274,18 @@ html:has(.tg-app) { background: var(--sand-bg); }
 .tg-wheel { padding-right: 38px; }
 .tg-wheel-edit, .tg-hist-edit { display: grid; place-items: center; width: 32px; height: 32px; flex-shrink: 0; border-radius: 9px; background: var(--t100); color: var(--t800); text-decoration: none; }
 .tg-wheel-edit { position: absolute; top: 7px; right: 7px; }
+.tg-edit-ic { display: grid; place-items: center; width: 32px; height: 32px; flex-shrink: 0; border-radius: 9px; background: var(--t100); color: var(--t800); text-decoration: none; }
+.tg-hero { position: relative; }
+.tg-hero-txt { padding-right: 34px; }
+.tg-hero-edit { position: absolute; top: 12px; right: 12px; background: rgb(247 243 235 / .16); color: var(--sand-bg); }
+.tg-context { min-width: 0; }
+@media (max-width: 359px) { .tg-context > svg:first-child { display: none; } }
+.tg-context .tg-edit-ic { margin-left: 2px; min-height: 0; width: 30px; height: 30px; padding: 0; background: var(--t100); color: var(--t800); text-decoration: none; }
+.tg-profile-row .tg-edit-ic { margin-left: auto; }
+.tg-cell-action { width: 116px; }
+.tg-cell-action > span { display: inline-flex; align-items: center; gap: 6px; }
+.tg-cell-action .tg-edit-ic { width: 28px; height: 28px; border-radius: 8px; }
+.tg-form-danger { display: grid; gap: 8px; padding-top: 6px; border-top: 1px solid var(--sand-line); }
 .tg-hist-edit { margin-left: 4px; }
 .tg-focus-wheel input { border-color: var(--t600); box-shadow: 0 0 0 3px rgb(47 111 120 / .15); }
 .tg-link.danger { color: var(--late-tx); }

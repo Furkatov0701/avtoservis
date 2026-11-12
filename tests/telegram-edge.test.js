@@ -430,3 +430,96 @@ test('admins can correct or delete a mistaken record; kilometres are kept only f
   assert.equal((await missing.handler(request({ action: 'admin-delete-service-record', initData, recordId }))).status, 404);
   assert.equal((await missing.handler(request({ action: 'admin-delete-service-record', initData, recordId: 'nope' }))).status, 400);
 });
+
+// Generic fake for the edit/delete actions: records every write and answers from small tables.
+function editFixture({ admin = false, customer = null, vehicles = [], customers = [] } = {}) {
+  const writes = [];
+  const handler = createEdgeHandler({ env: name => ({ ...values, SUPABASE_SERVICE_ROLE_KEY: 'service-role-test-key' })[name], fetcher: async (target, options) => {
+    const url = new URL(target); const path = url.pathname; const params = url.searchParams;
+    const body = options.body ? JSON.parse(options.body) : null;
+    if (path.endsWith('/telegram_profiles')) return new Response('', { status: 201 });
+    if (path.endsWith('/service_staff')) return json(admin ? [{ role: 'admin' }] : []);
+    const pick = (rows, owner) => rows.filter(row => (!params.get('id') || (params.get('id').startsWith('eq.') ? `eq.${row.id}` === params.get('id') : `neq.${row.id}` !== params.get('id')))
+      && (!owner || !params.get(owner) || `eq.${row[owner]}` === params.get(owner)));
+    if (path.endsWith('/customers') && options.method === 'GET') {
+      if (params.get('telegram_user_id')) return json(customer ? [customer] : []);
+      return json(pick(customers).filter(row => !params.get('phone_normalized') || `eq.${row.phone_normalized}` === params.get('phone_normalized')));
+    }
+    const table = path.endsWith('/customers') ? customers : path.endsWith('/vehicles') ? vehicles : null;
+    if (!table) throw new Error(`unexpected ${options.method} ${path}`);
+    const rows = pick(table, 'customer_id');
+    if (options.method === 'GET') return json(rows);
+    writes.push({ method: options.method, table: path.split('/').at(-1), search: decodeURIComponent(url.search), body });
+    return json(rows.map(row => ({ ...row, ...(body || {}) })));
+  } });
+  return { handler, writes };
+}
+
+const ownId = 'a1aa03a9-8e87-462b-9581-985f4399af6f';
+const otherId = 'b2aa03a9-8e87-462b-9581-985f4399af6f';
+const carId = 'c3aa03a9-8e87-462b-9581-985f4399af6f';
+
+test('admins correct or delete a vehicle; the same plate and year rules apply', async () => {
+  const initData = await signedInitData();
+  const vehicles = [{ id: carId, customer_id: ownId, make: 'Daewoo', model: 'Tico', plate: '30A123BC', production_year: 2001, service_records: [{ id: 'r1' }] }];
+  assert.equal((await editFixture({ vehicles }).handler(request({ action: 'admin-update-vehicle', initData, vehicleId: carId, vehicle: { model: 'Tico', plate: '30A123BC' } }))).status, 403);
+  const { handler, writes } = editFixture({ admin: true, vehicles });
+  const update = vehicle => handler(request({ action: 'admin-update-vehicle', initData, vehicleId: carId, vehicle }));
+  assert.equal((await update({ model: 'Tico', plate: '3A123BC' })).status, 400);
+  assert.equal((await update({ model: 'Tico', plate: '30A123BC', productionYear: 1979 })).status, 400);
+  assert.equal((await handler(request({ action: 'admin-update-vehicle', initData, vehicleId: 'nope', vehicle: { model: 'Tico', plate: '30A123BC' } }))).status, 400);
+  assert.equal(writes.length, 0);
+  const data = await (await update({ make: 'chevrolet', model: 'damas', plate: '01 b 777 aa', productionYear: 2015 })).json();
+  assert.deepEqual(writes[0], { method: 'PATCH', table: 'vehicles', search: `?id=eq.${carId}`, body: { make: 'Chevrolet', model: 'Damas', plate: '01B777AA', production_year: 2015 } });
+  assert.equal(data.vehicle.plate, '01B777AA');
+  assert.equal((await handler(request({ action: 'admin-delete-vehicle', initData, vehicleId: carId }))).status, 200);
+  assert.deepEqual([writes[1].method, writes[1].search], ['DELETE', `?id=eq.${carId}`]);
+  assert.equal((await editFixture({ admin: true }).handler(request({ action: 'admin-delete-vehicle', initData, vehicleId: carId }))).status, 404);
+});
+
+test('customers correct only their own vehicles and delete only ones without service history', async () => {
+  const initData = await signedInitData();
+  const customer = { id: ownId, first_name: 'Ali', last_name: '', phone: '+998901234567' };
+  const own = { id: carId, customer_id: ownId, make: 'Daewoo', model: 'Tico', plate: '30A123BC', production_year: null, service_records: [] };
+  const vehicle = { make: 'kia', model: 'k5', plate: '30a123bc' };
+  assert.equal((await editFixture({ vehicles: [own] }).handler(request({ action: 'customer-update-vehicle', initData, vehicleId: carId, vehicle }))).status, 403);
+  const mine = editFixture({ customer, vehicles: [own] });
+  assert.equal((await mine.handler(request({ action: 'customer-update-vehicle', initData, vehicleId: carId, vehicle }))).status, 200);
+  assert.deepEqual(mine.writes[0], { method: 'PATCH', table: 'vehicles', search: `?id=eq.${carId}&customer_id=eq.${ownId}`, body: { make: 'Kia', model: 'K5', plate: '30A123BC', production_year: null } });
+  // Someone else's vehicle is invisible: the owner filter returns nothing.
+  const foreign = editFixture({ customer, vehicles: [{ ...own, customer_id: otherId }] });
+  assert.equal((await foreign.handler(request({ action: 'customer-update-vehicle', initData, vehicleId: carId, vehicle }))).status, 404);
+  assert.equal((await foreign.handler(request({ action: 'customer-delete-vehicle', initData, vehicleId: carId }))).status, 404);
+  assert.equal(foreign.writes.length, 1); // only the refused PATCH, which matched no row
+  const withHistory = editFixture({ customer, vehicles: [{ ...own, service_records: [{ id: 'r1' }] }] });
+  const refused = await withHistory.handler(request({ action: 'customer-delete-vehicle', initData, vehicleId: carId }));
+  assert.equal(refused.status, 409);
+  assert.equal((await refused.json()).error, 'vehicle_has_records');
+  assert.equal(withHistory.writes.length, 0);
+  assert.equal((await mine.handler(request({ action: 'customer-delete-vehicle', initData, vehicleId: carId }))).status, 200);
+  assert.deepEqual([mine.writes[1].method, mine.writes[1].search], ['DELETE', `?id=eq.${carId}&customer_id=eq.${ownId}`]);
+});
+
+test('admins correct or delete a customer; phones stay unique and Telegram ids stay on the server', async () => {
+  const initData = await signedInitData();
+  const customers = [
+    { id: ownId, first_name: 'Ali', last_name: 'Valiyev', phone: '+998901234567', phone_normalized: '998901234567', telegram_user_id: 777 },
+    { id: otherId, first_name: 'Vali', last_name: '', phone: '+998911111111', phone_normalized: '998911111111', telegram_user_id: null },
+  ];
+  assert.equal((await editFixture({ customers }).handler(request({ action: 'admin-delete-customer', initData, customerId: ownId }))).status, 403);
+  const { handler, writes } = editFixture({ admin: true, customers });
+  const update = customer => handler(request({ action: 'admin-update-customer', initData, customerId: ownId, customer }));
+  assert.equal((await update({ firstName: '', phone: '+998901234567' })).status, 400);
+  assert.equal((await update({ firstName: 'Ali', phone: '12345' })).status, 400);
+  const taken = await update({ firstName: 'Ali', phone: '+998 91 111 11 11' });
+  assert.equal(taken.status, 409);
+  assert.equal(writes.length, 0);
+  const data = await (await update({ firstName: 'aziz', lastName: 'karimov', phone: '90 123 45 67' })).json();
+  assert.deepEqual(writes[0], { method: 'PATCH', table: 'customers', search: `?id=eq.${ownId}`, body: { first_name: 'Aziz', last_name: 'Karimov', phone: '+998901234567' } });
+  assert.deepEqual(data.customer, { id: ownId, firstName: 'Aziz', lastName: 'Karimov', phone: '+998901234567', linked: true });
+  assert.equal(JSON.stringify(data).includes('777'), false);
+  assert.equal((await handler(request({ action: 'admin-delete-customer', initData, customerId: otherId }))).status, 200);
+  assert.deepEqual([writes[1].method, writes[1].search], ['DELETE', `?id=eq.${otherId}`]);
+  assert.equal((await editFixture({ admin: true }).handler(request({ action: 'admin-delete-customer', initData, customerId: ownId }))).status, 404);
+  assert.equal((await handler(request({ action: 'admin-delete-customer', initData, customerId: 'x' }))).status, 400);
+});

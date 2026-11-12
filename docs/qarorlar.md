@@ -1,5 +1,19 @@
 # Avto ilovasi — qarorlar va bosqichlar
 
+## Ma’lumotlarni tahrirlash va o‘chirish — 2026-11-12
+
+- Xato kiritilishi mumkin bo‘lgan joylarda ✏️ belgisi bor: mashina kartasi
+  (Bosh sahifa, Bo‘limlar), profil sahifasidagi har bir mashina, admin uchun
+  mijozlar jadvalidagi har bir qator va tanlangan mijoz qatori.
+- Tahrirlash sahifasida «…ni o‘chirish» tugmasi bor; har o‘chirish qayta
+  so‘raladi («Ha, o‘chirish» / «Yo‘q»).
+- Mijoz faqat o‘z mashinasini tahrirlaydi (server `customer_id` bo‘yicha
+  tekshiradi). Servis tarixi bor mashinani mijoz o‘chira olmaydi — servis
+  yozuvlari yo‘qolmasligi uchun; buni faqat admin qiladi.
+- Admin mijozni o‘chirsa, uning mashinalari va xizmat yozuvlari ham o‘chadi;
+  Telegram profili qoladi, mijoz keyin qayta ro‘yxatdan o‘tishi mumkin.
+- Telefon raqami takrorlanmaydi (`customer_exists`).
+
 ## Petrol Teal + Sand dizayni — 2026-11-11
 
 - Foydalanuvchi 3 ta joylashuv variantidan A (“Yashil Pro”) ni, so‘ng 11 ta rang kombinatsiyasidan **Petrol Teal + Sand** ni tanladi (“juda xira ham, juda to‘q ham bo‘lmasin”).

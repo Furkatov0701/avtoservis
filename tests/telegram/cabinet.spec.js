@@ -83,6 +83,34 @@ async function api(page, state) {
         for (const vehicle of state.vehicles) vehicle.service_records = vehicle.service_records.filter(record => record.id !== body.recordId);
         return ok({ deleted: body.recordId });
       }
+      case 'admin-update-customer': {
+        const customer = state.customers.find(item => item.id === body.customerId);
+        if (!customer) return fail(404, 'customer_not_found');
+        if (state.customers.some(item => item.id !== customer.id && item.phone === body.customer.phone)) return fail(409, 'customer_exists');
+        Object.assign(customer, { first_name: body.customer.firstName, last_name: body.customer.lastName, phone: body.customer.phone });
+        return ok({ customer: { id: customer.id, firstName: customer.first_name, lastName: customer.last_name, phone: customer.phone, linked: customer.linked } });
+      }
+      case 'admin-delete-customer': {
+        state.customers = state.customers.filter(item => item.id !== body.customerId);
+        state.vehicles = state.vehicles.filter(item => item.customer_id !== body.customerId);
+        return ok({ deleted: body.customerId });
+      }
+      case 'admin-update-vehicle':
+      case 'customer-update-vehicle': {
+        if (body.action.startsWith('admin-') && state.role !== 'admin') return fail(403, 'admin_required');
+        const vehicle = state.vehicles.find(item => item.id === body.vehicleId);
+        if (!vehicle) return fail(404, 'vehicle_not_found');
+        Object.assign(vehicle, { make: body.vehicle.make, model: body.vehicle.model, plate: body.vehicle.plate, production_year: body.vehicle.productionYear ? Number(body.vehicle.productionYear) : null });
+        return ok({ vehicle });
+      }
+      case 'admin-delete-vehicle':
+      case 'customer-delete-vehicle': {
+        const vehicle = state.vehicles.find(item => item.id === body.vehicleId);
+        if (!vehicle) return fail(404, 'vehicle_not_found');
+        if (body.action.startsWith('customer-') && vehicle.service_records.length) return fail(409, 'vehicle_has_records');
+        state.vehicles = state.vehicles.filter(item => item.id !== body.vehicleId);
+        return ok({ deleted: body.vehicleId });
+      }
       case 'customer-vehicles': return state.customer ? ok({ vehicles: state.vehicles }) : ok({ account: 'unlinked', vehicles: [] });
       case 'customer-update-profile': {
         if (!state.customer) return fail(403, 'customer_required');
@@ -162,7 +190,7 @@ test('admin: home, customers table, adding a customer, a car and a tire record',
   await page.getByLabel('Telefon raqami *').fill('900000000');
   await expect(page.getByLabel('Telefon raqami *')).toHaveValue('+998 (90) 000-00-00');
   await page.getByRole('button', { name: 'Qo‘shish' }).click();
-  await expect(page.getByRole('alert')).toHaveText('Bu telefon raqami bilan mijoz allaqachon qo‘shilgan.');
+  await expect(page.getByRole('alert')).toHaveText('Bu telefon raqami bilan boshqa mijoz allaqachon qo‘shilgan.');
   await page.getByLabel('Telefon raqami *').fill('+998 93 555 44 33');
   await page.getByRole('button', { name: 'Qo‘shish' }).click();
   expect(calls.find(call => call.action === 'admin-create-customer' && call.customer.phone === '+998935554433')).toBeTruthy();
@@ -320,12 +348,111 @@ test('customer: cars, sections, service dates, tires, profile and editing', asyn
   await page.screenshot({ path: `${SHOTS}/16-user-profil.png` });
   await page.getByRole('button', { name: 'CHIQISH' }).click();
   expect(await page.evaluate(() => closeCalls)).toBe(1);
-  await page.getByRole('link', { name: 'TAHRIRLASH' }).click();
+  await page.getByRole('link', { name: 'TAHRIRLASH', exact: true }).click();
   await page.getByLabel('Ism *').fill('Alisher');
   await page.getByRole('button', { name: 'Saqlash' }).click();
   await expect(page.getByRole('heading', { name: 'ALISHER PALONCHAYEV' })).toBeVisible();
   expect(calls.find(call => call.action === 'customer-update-profile').profile).toEqual({ firstName: 'Alisher', lastName: 'Palonchayev' });
   expect(calls.some(call => call.action.startsWith('admin-'))).toBe(false);
+  expect(errors).toEqual([]);
+});
+
+test('customer: corrects own car details; deletes only a car without service history', async ({ page }) => {
+  const errors = []; page.on('pageerror', error => errors.push(error.message));
+  const second = { ...malibu(), id: ids(2), model: 'Cobalt', plate: '01A123BC', production_year: null, service_records: [] };
+  const state = { role: 'user', profile: { firstName: 'Ali', lastName: '' }, customer: { id: ids(11), firstName: 'Ali', lastName: 'Valiyev', phone: '+998909999999' }, customers: [], vehicles: [malibu(), second] };
+  const calls = await api(page, state);
+  await sdk(page); await page.goto('/app/');
+  await page.getByRole('link', { name: 'Mashinalar' }).click();
+  await page.locator('.tg-grid').getByRole('button', { name: /MALIBU 2/ }).click();
+  // The car card in Bo'limlar has a pencil button.
+  await page.getByRole('link', { name: 'Mashinani tahrirlash' }).click();
+  await expect(page.getByRole('heading', { name: 'Mashinani tahrirlash' })).toBeVisible();
+  await expect(page.getByLabel('Modeli *')).toHaveValue('Malibu 2');
+  await expect(page.getByLabel('Hudud kodi (2 raqam)')).toHaveValue('30');
+  await expect(page.getByLabel('Raqam (6 belgi)')).toHaveValue('UUU111');
+  await expect(page.getByLabel('Ishlab chiqarilgan yili')).toHaveValue('2021');
+  // A car with service history cannot be deleted by the customer.
+  await expect(page.getByRole('button', { name: 'Mashinani o‘chirish' })).toHaveCount(0);
+  await expect(page.getByText(/faqat servis administratori o‘chira oladi/)).toBeVisible();
+  await page.getByLabel('Raqam (6 belgi)').fill('a777aa');
+  await page.getByLabel('Ishlab chiqarilgan yili').fill('1975');
+  await page.getByRole('button', { name: 'Saqlash' }).click();
+  await expect(page.getByText(/Yil 1980 dan \d{4} gacha bo‘lsin\./)).toBeVisible();
+  await page.getByLabel('Ishlab chiqarilgan yili').fill('2020');
+  await page.screenshot({ path: `${SHOTS}/user-mashina-tahrirlash.png` });
+  await page.getByRole('button', { name: 'Saqlash' }).click();
+  await expect(page.locator('.tg-hero')).toContainText('2020');
+  await expect(page.getByLabel('Davlat raqami 30 A777AA')).toBeVisible();
+  await page.screenshot({ path: `${SHOTS}/user-bolimlar-tahrir.png` });
+  expect(calls.find(call => call.action === 'customer-update-vehicle')).toMatchObject({ vehicleId: ids(1), vehicle: { model: 'Malibu 2', plate: '30A777AA', productionYear: '2020' } });
+
+  // The car without history is deleted from the profile, after confirmation.
+  await page.getByRole('link', { name: 'Profil' }).first().click();
+  await page.getByRole('link', { name: 'COBALT: tahrirlash' }).click();
+  await page.getByRole('button', { name: 'Mashinani o‘chirish' }).click();
+  await expect(page.getByText('Mashina butunlay o‘chiriladi. Ishonchingiz komilmi?')).toBeVisible();
+  await page.getByRole('button', { name: 'Ha, o‘chirish' }).click();
+  await expect(page.locator('.tg-grid').getByRole('button')).toHaveCount(1);
+  await expect(page.locator('.tg-grid')).not.toContainText('COBALT');
+  expect(calls.some(call => call.action.startsWith('admin-'))).toBe(false);
+  expect(errors).toEqual([]);
+});
+
+test('admin: corrects or deletes a customer and a car', async ({ page }) => {
+  const errors = []; page.on('pageerror', error => errors.push(error.message));
+  const customers = [
+    { id: ids(11), first_name: 'Paloncha', last_name: 'Palonchayev', phone: '+998900000000', linked: true },
+    { id: ids(12), first_name: 'Vali', last_name: 'Xato', phone: '+998911111111', linked: false },
+  ];
+  const state = { role: 'admin', profile: { firstName: 'Bosh', lastName: 'Admin' }, customer: null, customers, vehicles: [malibu()] };
+  const calls = await api(page, state);
+  await sdk(page); await page.goto('/app/');
+  await page.getByRole('link', { name: 'Mijozlar' }).click();
+  const fits = async () => { for (const width of [320, 390]) { await page.setViewportSize({ width, height: 800 }); expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true); } };
+  await fits();
+  await page.getByRole('link', { name: 'Paloncha Palonchayev: tahrirlash' }).click();
+  await fits();
+  await expect(page.getByRole('heading', { name: 'Mijozni tahrirlash' })).toBeVisible();
+  await expect(page.getByLabel('Telefon raqami *')).toHaveValue('+998 (90) 000-00-00');
+  await page.getByLabel('Telefon raqami *').fill('911111111');
+  await page.getByRole('button', { name: 'Saqlash' }).click();
+  await expect(page.getByRole('alert')).toHaveText('Bu telefon raqami bilan boshqa mijoz allaqachon qo‘shilgan.');
+  await page.getByLabel('Telefon raqami *').fill('935554433');
+  await page.getByLabel('Ism *').fill('aziz');
+  await expect(page.getByLabel('Ism *')).toHaveValue('Aziz');
+  await page.screenshot({ path: `${SHOTS}/admin-mijoz-tahrirlash.png` });
+  await page.getByRole('button', { name: 'Saqlash' }).click();
+  await expect(page.locator('.tg-table')).toContainText('Aziz Palonchayev');
+  await expect(page.locator('.tg-table')).toContainText('+998 (93) 555-44-33');
+
+  // Delete the mistaken customer.
+  await page.getByRole('link', { name: 'Vali Xato: tahrirlash' }).click();
+  await page.getByRole('button', { name: 'Mijozni o‘chirish' }).click();
+  await page.getByRole('button', { name: 'Ha, o‘chirish' }).click();
+  await expect(page.getByRole('table', { name: 'Mijozlar ro‘yxati' })).not.toContainText('Vali Xato');
+  expect(calls.find(call => call.action === 'admin-delete-customer').customerId).toBe(ids(12));
+
+  // Correct a car from the context line in Bo'limlar, then delete it with its history.
+  await page.getByRole('button', { name: 'Aziz Palonchayev: ko‘rish' }).click();
+  await expect(page.getByRole('link', { name: 'Mijozni tahrirlash' })).toBeVisible();
+  await page.getByRole('button', { name: /MALIBU 2/ }).click();
+  await page.getByRole('link', { name: 'Mashinani tahrirlash' }).click();
+  await page.getByLabel('Modeli *').fill('malibu');
+  // The sample plate predates the plate rule, so the form asks for a valid one.
+  await page.getByRole('button', { name: 'Saqlash' }).click();
+  await expect(page.getByText('Hudud kodi 2 raqam, qolgani 6 belgi: A123BC yoki 123ABC.')).toBeVisible();
+  await page.getByLabel('Raqam (6 belgi)').fill('777aaa');
+  await page.getByRole('button', { name: 'Saqlash' }).click();
+  await expect(page.locator('.tg-context')).toContainText('MALIBU');
+  expect(calls.find(call => call.action === 'admin-update-vehicle').vehicle.model).toBe('Malibu');
+  await page.getByRole('link', { name: 'Mashinani tahrirlash' }).click();
+  await page.getByRole('button', { name: 'Mashinani o‘chirish' }).click();
+  await expect(page.getByText('Mashina va uning 4 ta xizmat yozuvi butunlay o‘chiriladi. Ishonchingiz komilmi?')).toBeVisible();
+  await page.screenshot({ path: `${SHOTS}/admin-mashina-ochirish.png` });
+  await page.getByRole('button', { name: 'Ha, o‘chirish' }).click();
+  await expect(page.getByText('Hali mashina yo‘q')).toBeVisible();
+  expect(calls.some(call => call.action === 'admin-delete-vehicle')).toBe(true);
   expect(errors).toEqual([]);
 });
 

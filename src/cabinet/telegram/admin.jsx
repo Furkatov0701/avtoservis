@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { normalizePhone } from '../validation';
 import { useCabinet } from './context';
-import { AddButton, capitalizeSentence, capitalizeWords, Combobox, Empty, Failure, FormPage, Notice, PlateInput, PrimaryButton, SearchBar, TextField } from './ui';
+import { AddButton, capitalizeSentence, capitalizeWords, Combobox, DeleteConfirm, EditLink, Empty, Failure, FormPage, Notice, PlateInput, PrimaryButton, SearchBar, TextField } from './ui';
 import { makeSuggestions, modelSuggestions } from './cars';
 import { addDays, addMonths, DateField } from './datepicker';
 import { formatPhone, fullName, initials, maskPhoneInput, MAX_KM, MIN_PRODUCTION_YEAR, maxProductionYear, ODOMETER_SERVICES, PLATE_BODY, recordsFor, sentenceCase, serviceById, splitPlate, tireWheels, titleCase, vehicleName } from './format';
@@ -42,19 +42,27 @@ export function Customers() {
       : <><table className="tg-table" aria-label="Mijozlar ro‘yxati"><tbody>{Array.from({ length: rows }, (_, index) => {
         const customer = shown[index];
         return customer
-          ? <tr key={customer.id}><td className="tg-num">{index + 1}</td><td className="tg-name"><span className="tg-person"><span className="tg-mini-ava" aria-hidden="true">{initials(customer)}<i className={customer.linked ? 'on' : ''} /></span><span><strong>{fullName(customer)}</strong><small>{customer.linked ? formatPhone(customer.phone) : 'Botga ulanmagan'}</small></span></span></td><td className="tg-cell-action"><button type="button" className="tg-chip" onClick={() => open(customer)} aria-label={`${fullName(customer)}: ko‘rish`}>Ko‘rish</button></td></tr>
+          ? <tr key={customer.id}><td className="tg-num">{index + 1}</td><td className="tg-name"><span className="tg-person"><span className="tg-mini-ava" aria-hidden="true">{initials(customer)}<i className={customer.linked ? 'on' : ''} /></span><span><strong>{fullName(customer)}</strong><small>{customer.linked ? formatPhone(customer.phone) : 'Botga ulanmagan'}</small></span></span></td><td className="tg-cell-action"><span><EditLink to={`/mijozlar/${customer.id}/tahrir`} label={`${fullName(customer)}: tahrirlash`} /><button type="button" className="tg-chip" onClick={() => open(customer)} aria-label={`${fullName(customer)}: ko‘rish`}>Ko‘rish</button></span></td></tr>
           : <tr key={`empty-${index}`} aria-hidden="true" className="empty"><td className="tg-num">{index + 1}</td><td className="tg-name" /><td className="tg-cell-action" /></tr>;
       })}</tbody></table>{list.length > limit && <button type="button" className="tg-more" onClick={() => setLimit(value => value + PAGE)}>Yana....</button>}</>}
   </section>;
 }
 
-export function CustomerCreate() {
-  const { request, customers, setCustomers, selectCustomer } = useCabinet();
+// Add a customer (/mijozlar/yangi) or correct one (/mijozlar/:customerId/tahrir).
+export function CustomerForm() {
+  const { customerId } = useParams();
+  const { request, customers, loadCustomers, setCustomers, selectedCustomer, selectCustomer, replaceSelectedCustomer, resetAdminVehicles, loadOverview, goBack } = useCabinet();
   const navigate = useNavigate();
-  const [phone, setPhone] = useState('');
+  const list = customers.data || [];
+  const existing = customerId ? list.find(item => item.id === customerId) || (selectedCustomer?.id === customerId ? selectedCustomer : null) : null;
+  const [phone, setPhone] = useState(() => (existing ? maskPhoneInput(existing.phone) : ''));
   const [errors, setErrors] = useState({});
   const [failure, setFailure] = useState('');
   const [busy, setBusy] = useState(false);
+  useEffect(() => { if (customerId && !existing && customers.kind === 'idle') loadCustomers().catch(() => {}); }, [customerId, existing, customers.kind, loadCustomers]);
+  useEffect(() => { if (existing && !phone) setPhone(maskPhoneInput(existing.phone)); }, [existing]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (customerId && !existing) return <FormPage title="Mijozni tahrirlash" subtitle="Admin">{customers.kind === 'loading' || customers.kind === 'idle' ? <Empty loading title="Yuklanmoqda…" /> : <Empty title="Mijoz topilmadi" action={<Link className="tg-secondary" to="/mijozlar">Mijozlarni ochish</Link>} />}</FormPage>;
+  const clearError = name => setErrors(current => (current[name] ? { ...current, [name]: undefined } : current));
   const submit = async event => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
@@ -69,37 +77,67 @@ export function CustomerCreate() {
     if (Object.keys(found).length) return;
     setBusy(true);
     try {
-      const data = await request('admin-create-customer', { customer: { firstName, lastName, phone: normalized } });
-      const row = { id: data.customer.id, first_name: data.customer.firstName, last_name: data.customer.lastName, phone: data.customer.phone, linked: false };
-      if (customers.kind === 'ready') setCustomers({ kind: 'ready', data: [row, ...(customers.data || [])] });
-      selectCustomer(row);
-      navigate('/mashinalar', { replace: true });
+      const customer = { firstName, lastName, phone: normalized };
+      if (existing) {
+        const data = await request('admin-update-customer', { customerId: existing.id, customer });
+        const row = { ...existing, first_name: data.customer.firstName, last_name: data.customer.lastName, phone: data.customer.phone, linked: data.customer.linked };
+        setCustomers({ kind: 'ready', data: list.map(item => (item.id === row.id ? row : item)) });
+        if (selectedCustomer?.id === row.id) replaceSelectedCustomer(row);
+        resetAdminVehicles(); loadOverview().catch(() => {});
+        goBack();
+      } else {
+        const data = await request('admin-create-customer', { customer });
+        const row = { id: data.customer.id, first_name: data.customer.firstName, last_name: data.customer.lastName, phone: data.customer.phone, linked: false };
+        if (customers.kind === 'ready') setCustomers({ kind: 'ready', data: [row, ...list] });
+        selectCustomer(row);
+        navigate('/mashinalar', { replace: true });
+      }
     } catch (error) {
-      setFailure(error.code === 'customer_exists' ? 'Bu telefon raqami bilan mijoz allaqachon qo‘shilgan.' : error.code === 'invalid_customer' ? 'Ma’lumotlarni tekshirib, qayta kiriting.' : 'Mijozni saqlab bo‘lmadi. Qayta urinib ko‘ring.');
+      setFailure(error.code === 'customer_exists' ? 'Bu telefon raqami bilan boshqa mijoz allaqachon qo‘shilgan.' : error.code === 'invalid_customer' ? 'Ma’lumotlarni tekshirib, qayta kiriting.' : error.code === 'customer_not_found' ? 'Mijoz topilmadi: u allaqachon o‘chirilgan bo‘lishi mumkin.' : 'Mijozni saqlab bo‘lmadi. Qayta urinib ko‘ring.');
     } finally { setBusy(false); }
   };
-  return <FormPage title="Mijoz qo‘shish" subtitle="Admin"><form className="tg-form" onSubmit={submit} noValidate>
-    <div className="tg-form-row"><TextField label="Ism" name="firstName" required maxLength="80" placeholder="Ali" autoComplete="off" autoCapitalize="words" onInput={capitalizeWords} error={errors.firstName} /><TextField label="Familiya" name="lastName" required maxLength="80" placeholder="Valiyev" autoComplete="off" autoCapitalize="words" onInput={capitalizeWords} error={errors.lastName} /></div>
-    <TextField label="Telefon raqami" name="phone" required inputMode="tel" placeholder="+998 (97) 123-45-67" value={phone} onChange={event => setPhone(maskPhoneInput(event.target.value))} error={errors.phone} hint="Mijoz shu raqamni Telegram orqali ulashganda kabineti ochiladi." />
+  const remove = async () => {
+    setBusy(true); setFailure('');
+    try {
+      await request('admin-delete-customer', { customerId: existing.id });
+      setCustomers({ kind: 'ready', data: list.filter(item => item.id !== existing.id) });
+      if (selectedCustomer?.id === existing.id) selectCustomer(null);
+      resetAdminVehicles(); loadOverview().catch(() => {});
+      navigate('/mijozlar', { replace: true });
+    } catch { setFailure('Mijozni o‘chirib bo‘lmadi. Qayta urinib ko‘ring.'); setBusy(false); }
+  };
+  return <FormPage title={existing ? 'Mijozni tahrirlash' : 'Mijoz qo‘shish'} subtitle={existing ? fullName(existing) : 'Admin'}><form className="tg-form" onSubmit={submit} noValidate>
+    <div className="tg-form-row"><TextField label="Ism" name="firstName" required maxLength="80" placeholder="Ali" autoComplete="off" autoCapitalize="words" defaultValue={existing?.first_name || ''} onInput={event => { capitalizeWords(event); clearError('firstName'); }} error={errors.firstName} /><TextField label="Familiya" name="lastName" required maxLength="80" placeholder="Valiyev" autoComplete="off" autoCapitalize="words" defaultValue={existing?.last_name || ''} onInput={event => { capitalizeWords(event); clearError('lastName'); }} error={errors.lastName} /></div>
+    <TextField label="Telefon raqami" name="phone" required inputMode="tel" placeholder="+998 (97) 123-45-67" value={phone} onChange={event => { setPhone(maskPhoneInput(event.target.value)); clearError('phone'); }} error={errors.phone} hint={existing?.linked ? 'Mijoz botga ulangan: raqam o‘zgarsa ham kabineti ochiq qoladi.' : 'Mijoz shu raqamni Telegram orqali ulashganda kabineti ochiladi.'} />
     <Notice kind="error">{failure}</Notice>
-    <PrimaryButton type="submit" busy={busy}>Qo‘shish</PrimaryButton><CancelLink />
+    <PrimaryButton type="submit" busy={busy}>{existing ? 'Saqlash' : 'Qo‘shish'}</PrimaryButton>
+    {existing && <div className="tg-form-danger"><DeleteConfirm label="Mijozni o‘chirish" question="Mijoz, uning barcha mashinalari va xizmat yozuvlari butunlay o‘chiriladi. Ishonchingiz komilmi?" onConfirm={remove} busy={busy} /></div>}
+    <CancelLink />
   </form></FormPage>;
 }
 
-export function VehicleCreate() {
-  const { request, selectedCustomer, loadAdminVehicles, selectVehicle } = useCabinet();
+// Add a vehicle (/mashinalar/yangi, admin) or correct one (/mashinalar/:vehicleId/tahrir, admin or its owner).
+export function VehicleForm() {
+  const { vehicleId } = useParams();
+  const { role, request, vehicles, selectedCustomer, loadAdminVehicles, resetAdminVehicles, loadUserVehicles, selectVehicle, recordCache, loadOverview, goBack } = useCabinet();
   const navigate = useNavigate();
-  const [make, setMake] = useState('');
-  const [model, setModel] = useState('');
-  const [region, setRegion] = useState('');
-  const [plateBody, setPlateBody] = useState('');
+  const existing = vehicleId ? vehicles.find(item => item.id === vehicleId) : null;
+  const plate = splitPlate(existing?.plate || '');
+  const [make, setMake] = useState(existing?.make || '');
+  const [model, setModel] = useState(existing?.model || '');
+  const [region, setRegion] = useState(plate.region || '');
+  const [plateBody, setPlateBody] = useState((plate.number || '').replace(/\s/g, ''));
   const [errors, setErrors] = useState({});
   const [failure, setFailure] = useState('');
   const [busy, setBusy] = useState(false);
-  if (!selectedCustomer) return <FormPage title="Mashina qo‘shish" subtitle="Admin"><Empty title="Avval mijozni tanlang" action={<Link className="tg-secondary" to="/mijozlar">Mijozlarni ochish</Link>} /></FormPage>;
+  const admin = role === 'admin';
+  if (vehicleId && !existing) return <FormPage title="Mashinani tahrirlash"><Empty title="Mashina topilmadi" action={<Link className="tg-secondary" to="/mashinalar">Mashinalarni ochish</Link>} /></FormPage>;
+  if (!vehicleId && (!admin || !selectedCustomer)) return <FormPage title="Mashina qo‘shish" subtitle="Admin"><Empty title="Avval mijozni tanlang" action={<Link className="tg-secondary" to="/mijozlar">Mijozlarni ochish</Link>} /></FormPage>;
   const maxYear = maxProductionYear();
+  const recordCount = existing ? (recordCache[existing.id]?.kind === 'ready' ? recordCache[existing.id].list : existing.service_records || []).length : 0;
   // A field's error disappears as soon as the field is changed.
   const clearError = name => setErrors(current => (current[name] ? { ...current, [name]: undefined } : current));
+  const refresh = async () => { if (admin) { await loadAdminVehicles(); loadOverview().catch(() => {}); } else await loadUserVehicles(); };
   const submit = async event => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
@@ -111,23 +149,44 @@ export function VehicleCreate() {
     setErrors(found); setFailure('');
     if (Object.keys(found).length) return;
     setBusy(true);
+    const vehicle = { make: make.trim(), model: model.trim(), plate: `${region}${plateBody}`, productionYear };
     try {
-      const data = await request('admin-create-vehicle', { customerId: selectedCustomer.id, vehicle: { make: make.trim(), model: model.trim(), plate: `${region}${plateBody}`, productionYear } });
-      await loadAdminVehicles();
-      selectVehicle(data.vehicle.id);
-      navigate('/mashinalar', { replace: true });
-    } catch { setFailure('Mashinani saqlab bo‘lmadi. Maydonlarni tekshirib, qayta urinib ko‘ring.'); }
+      if (existing) {
+        await request(admin ? 'admin-update-vehicle' : 'customer-update-vehicle', { vehicleId: existing.id, vehicle });
+        await refresh();
+        goBack();
+      } else {
+        const data = await request('admin-create-vehicle', { customerId: selectedCustomer.id, vehicle });
+        await loadAdminVehicles();
+        selectVehicle(data.vehicle.id);
+        navigate('/mashinalar', { replace: true });
+      }
+    } catch (error) { setFailure(error.code === 'vehicle_not_found' ? 'Mashina topilmadi: u o‘chirilgan bo‘lishi mumkin.' : 'Mashinani saqlab bo‘lmadi. Maydonlarni tekshirib, qayta urinib ko‘ring.'); }
     finally { setBusy(false); }
   };
-  return <FormPage title="Mashina qo‘shish" subtitle={fullName(selectedCustomer)}><form className="tg-form" onSubmit={submit} noValidate>
+  const remove = async () => {
+    setBusy(true); setFailure('');
+    try {
+      await request(admin ? 'admin-delete-vehicle' : 'customer-delete-vehicle', { vehicleId: existing.id });
+      selectVehicle(null);
+      if (admin) { resetAdminVehicles(); loadOverview().catch(() => {}); } else await loadUserVehicles();
+      navigate('/mashinalar', { replace: true });
+    } catch (error) { setFailure(error.code === 'vehicle_has_records' ? 'Bu mashinada servis tarixi bor. O‘chirish uchun servis administratoriga murojaat qiling.' : 'Mashinani o‘chirib bo‘lmadi. Qayta urinib ko‘ring.'); setBusy(false); }
+  };
+  // Customers never lose the service's history: a vehicle with records is removed only by the admin.
+  const canDelete = existing && (admin || recordCount === 0);
+  const question = recordCount ? `Mashina va uning ${recordCount} ta xizmat yozuvi butunlay o‘chiriladi. Ishonchingiz komilmi?` : 'Mashina butunlay o‘chiriladi. Ishonchingiz komilmi?';
+  return <FormPage title={existing ? 'Mashinani tahrirlash' : 'Mashina qo‘shish'} subtitle={existing ? (admin && existing.customers ? fullName(existing.customers) : vehicleName(existing)) : fullName(selectedCustomer)}><form className="tg-form" onSubmit={submit} noValidate>
     <div className="tg-form-row">
       <Combobox label="Markasi" name="make" value={make} onChange={setMake} placeholder="Chevrolet" suggestions={makeSuggestions(make)} onPick={item => { setMake(item.make); if (item.model) { setModel(item.model); clearError('model'); } }} />
       <Combobox label="Modeli" name="model" required value={model} onChange={value => { setModel(value); clearError('model'); }} placeholder="Malibu 2" suggestions={modelSuggestions(model, make)} onPick={item => { setModel(item.model); clearError('model'); if (!make) setMake(item.make); }} error={errors.model} />
     </div>
     <PlateInput region={region} body={plateBody} onRegion={value => { setRegion(value); clearError('plate'); }} onBody={value => { setPlateBody(value); clearError('plate'); }} error={errors.plate} />
-    <TextField label="Ishlab chiqarilgan yili" name="productionYear" inputMode="numeric" maxLength="4" placeholder="2022" hint={`${MIN_PRODUCTION_YEAR}–${maxYear}`} onInput={event => { event.target.value = event.target.value.replace(/\D/g, '').slice(0, 4); clearError('productionYear'); }} error={errors.productionYear} />
+    <TextField label="Ishlab chiqarilgan yili" name="productionYear" inputMode="numeric" maxLength="4" placeholder="2022" defaultValue={existing?.production_year ?? ''} hint={`${MIN_PRODUCTION_YEAR}–${maxYear}`} onInput={event => { event.target.value = event.target.value.replace(/\D/g, '').slice(0, 4); clearError('productionYear'); }} error={errors.productionYear} />
     <Notice kind="error">{failure}</Notice>
-    <PrimaryButton type="submit" busy={busy}>Qo‘shish</PrimaryButton><CancelLink />
+    <PrimaryButton type="submit" busy={busy}>{existing ? 'Saqlash' : 'Qo‘shish'}</PrimaryButton>
+    {existing && <div className="tg-form-danger">{canDelete ? <DeleteConfirm label="Mashinani o‘chirish" question={question} onConfirm={remove} busy={busy} /> : <p className="tg-form-note">Bu mashinada servis tarixi bor, shuning uchun uni faqat servis administratori o‘chira oladi.</p>}</div>}
+    <CancelLink />
   </form></FormPage>;
 }
 
@@ -139,7 +198,6 @@ export function RecordForm() {
   const [errors, setErrors] = useState({});
   const [failure, setFailure] = useState('');
   const [busy, setBusy] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(false);
   const [performed, setPerformed] = useState(null);
   const service = serviceById[serviceId];
   const records = selectedVehicle ? recordCache[selectedVehicle.id]?.list || selectedVehicle.service_records || [] : [];
@@ -197,9 +255,7 @@ export function RecordForm() {
     <div className="tg-field"><label htmlFor="notes">Izoh</label><textarea id="notes" name="notes" maxLength="2000" rows="3" defaultValue={existing?.notes || ''} onInput={capitalizeSentence} /></div>
     <Notice kind="error">{failure}</Notice>
     <PrimaryButton type="submit" busy={busy}>Saqlash</PrimaryButton>
-    {existing && (confirmDelete
-      ? <div className="tg-confirm" role="alert"><p>Bu yozuv butunlay o‘chiriladi. Ishonchingiz komilmi?</p><div><button type="button" className="tg-danger" onClick={remove} disabled={busy}>Ha, o‘chirish</button><button type="button" className="tg-secondary" onClick={() => setConfirmDelete(false)}>Yo‘q</button></div></div>
-      : <button type="button" className="tg-link danger" onClick={() => setConfirmDelete(true)}>Yozuvni o‘chirish</button>)}
+    {existing && <div className="tg-form-danger"><DeleteConfirm label="Yozuvni o‘chirish" question="Bu yozuv butunlay o‘chiriladi. Ishonchingiz komilmi?" onConfirm={remove} busy={busy} /></div>}
     <CancelLink />
   </form></FormPage>;
 }

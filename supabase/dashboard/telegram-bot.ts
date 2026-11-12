@@ -324,6 +324,38 @@ async function adminCreateCustomer(config, body, fetcher) {
   return { ok: true, customer: customerView(customer) };
 }
 
+function customerIdFilter(customerId) {
+  if (!validUuid(customerId)) throw { status: 400, code: 'invalid_customer' };
+  return `id=eq.${encodeURIComponent(customerId)}`;
+}
+
+// Corrects a mistyped name or phone. The phone stays unique; a linked Telegram account is kept.
+async function adminUpdateCustomer(config, body, fetcher) {
+  await requireAdmin(config, body, fetcher);
+  const filter = customerIdFilter(body?.customerId);
+  const firstName = titleCase(cleanText(body?.customer?.firstName, 80));
+  const lastName = titleCase(cleanText(body?.customer?.lastName, 80));
+  const phone = normalizeUzPhone(cleanText(body?.customer?.phone, 32));
+  if (!firstName || !phone) throw { status: 400, code: 'invalid_customer' };
+  const other = await databaseRequest(config, `/rest/v1/customers?phone_normalized=eq.${phone.digits}&id=neq.${encodeURIComponent(body.customerId)}&select=id&limit=1`, { method: 'GET', headers: readHeaders }, fetcher);
+  if (firstRow(other)) throw { status: 409, code: 'customer_exists' };
+  const customer = firstRow(await databaseRequest(config, `/rest/v1/customers?${filter}`, {
+    method: 'PATCH', headers: writeJson, body: JSON.stringify({ first_name: firstName, last_name: lastName, phone: phone.phone }),
+  }, fetcher));
+  if (!customer) throw { status: 404, code: 'customer_not_found' };
+  return { ok: true, customer: { ...customerView(customer), linked: customer.telegram_user_id !== null && customer.telegram_user_id !== undefined } };
+}
+
+// Removes the customer card with its vehicles and service history (database cascade).
+// The Telegram profile itself stays, so the person can register again later.
+async function adminDeleteCustomer(config, body, fetcher) {
+  await requireAdmin(config, body, fetcher);
+  const filter = customerIdFilter(body?.customerId);
+  const customer = firstRow(await databaseRequest(config, `/rest/v1/customers?${filter}`, { method: 'DELETE', headers: writeJson }, fetcher));
+  if (!customer) throw { status: 404, code: 'customer_not_found' };
+  return { ok: true, deleted: customer.id };
+}
+
 async function adminVehicles(config, body, fetcher) {
   await requireAdmin(config, body, fetcher);
   const customerId = body?.customerId;
@@ -374,23 +406,83 @@ async function adminOverview(config, body, fetcher) {
   };
 }
 
+// Validates the editable part of a vehicle. Shared by create and both update actions.
+function parseVehicleInput(input) {
+  const make = titleCase(cleanText(input?.make, 80));
+  const model = titleCase(cleanText(input?.model, 100));
+  const plate = normalizePlate(cleanText(input?.plate, 24));
+  const suppliedYear = cleanText(String(input?.productionYear ?? ''), 4);
+  const productionYear = suppliedYear ? Number(suppliedYear) : null;
+  const maxYear = Number(serviceToday().slice(0, 4)) + 1;
+  if (!model || !plate || (productionYear !== null && (!Number.isInteger(productionYear) || productionYear < MIN_PRODUCTION_YEAR || productionYear > maxYear))) throw { status: 400, code: 'invalid_vehicle' };
+  return { make, model, plate, production_year: productionYear };
+}
+
+function vehicleView(vehicle) {
+  return { id: vehicle.id, make: vehicle.make, model: vehicle.model, plate: vehicle.plate, productionYear: vehicle.production_year };
+}
+
 async function adminCreateVehicle(config, body, fetcher) {
   await requireAdmin(config, body, fetcher);
   const customerId = body?.customerId;
-  const make = titleCase(cleanText(body?.vehicle?.make, 80));
-  const model = titleCase(cleanText(body?.vehicle?.model, 100));
-  const plate = normalizePlate(cleanText(body?.vehicle?.plate, 24));
-  const suppliedYear = cleanText(String(body?.vehicle?.productionYear ?? ''), 4);
-  const productionYear = suppliedYear ? Number(suppliedYear) : null;
-  const maxYear = Number(serviceToday().slice(0, 4)) + 1;
-  if (!validUuid(customerId) || !model || !plate || (productionYear !== null && (!Number.isInteger(productionYear) || productionYear < MIN_PRODUCTION_YEAR || productionYear > maxYear))) throw { status: 400, code: 'invalid_vehicle' };
+  if (!validUuid(customerId)) throw { status: 400, code: 'invalid_vehicle' };
+  const fields = parseVehicleInput(body?.vehicle);
   const rows = await databaseRequest(config, '/rest/v1/vehicles', {
-    method: 'POST', headers: { 'content-type': 'application/json', prefer: 'return=representation' },
-    body: JSON.stringify([{ customer_id: customerId, make, model, plate, production_year: productionYear }]),
+    method: 'POST', headers: writeJson,
+    body: JSON.stringify([{ customer_id: customerId, ...fields }]),
   }, fetcher);
   const vehicle = firstRow(rows);
   if (!vehicle) throw { status: 502, code: 'database_invalid_response' };
-  return { ok: true, vehicle: { id: vehicle.id, make: vehicle.make, model: vehicle.model, plate: vehicle.plate, productionYear: vehicle.production_year } };
+  return { ok: true, vehicle: vehicleView(vehicle) };
+}
+
+function vehicleFilter(vehicleId, customerId) {
+  if (!validUuid(vehicleId)) throw { status: 400, code: 'invalid_vehicle' };
+  return `id=eq.${encodeURIComponent(vehicleId)}${customerId ? `&customer_id=eq.${encodeURIComponent(customerId)}` : ''}`;
+}
+
+// Corrects a mistyped vehicle. The owner never changes here.
+async function adminUpdateVehicle(config, body, fetcher) {
+  await requireAdmin(config, body, fetcher);
+  const filter = vehicleFilter(body?.vehicleId);
+  const fields = parseVehicleInput(body?.vehicle);
+  const vehicle = firstRow(await databaseRequest(config, `/rest/v1/vehicles?${filter}`, { method: 'PATCH', headers: writeJson, body: JSON.stringify(fields) }, fetcher));
+  if (!vehicle) throw { status: 404, code: 'vehicle_not_found' };
+  return { ok: true, vehicle: vehicleView(vehicle) };
+}
+
+// The admin may remove a vehicle together with its service history.
+async function adminDeleteVehicle(config, body, fetcher) {
+  await requireAdmin(config, body, fetcher);
+  const filter = vehicleFilter(body?.vehicleId);
+  const vehicle = firstRow(await databaseRequest(config, `/rest/v1/vehicles?${filter}`, { method: 'DELETE', headers: writeJson }, fetcher));
+  if (!vehicle) throw { status: 404, code: 'vehicle_not_found' };
+  return { ok: true, deleted: vehicle.id };
+}
+
+// Customers correct only their own vehicles: the customer_id filter makes any other id "not found".
+async function customerUpdateVehicle(config, body, fetcher) {
+  const actor = await miniAppActor(config, body, fetcher);
+  if (!actor.customer) throw { status: 403, code: 'customer_required' };
+  const filter = vehicleFilter(body?.vehicleId, actor.customer.id);
+  const fields = parseVehicleInput(body?.vehicle);
+  const vehicle = firstRow(await databaseRequest(config, `/rest/v1/vehicles?${filter}`, { method: 'PATCH', headers: writeJson, body: JSON.stringify(fields) }, fetcher));
+  if (!vehicle) throw { status: 404, code: 'vehicle_not_found' };
+  return { ok: true, vehicle: vehicleView(vehicle) };
+}
+
+// A customer may remove only an own vehicle without service history, so the
+// service's records are never lost from the customer side.
+async function customerDeleteVehicle(config, body, fetcher) {
+  const actor = await miniAppActor(config, body, fetcher);
+  if (!actor.customer) throw { status: 403, code: 'customer_required' };
+  const filter = vehicleFilter(body?.vehicleId, actor.customer.id);
+  const found = firstRow(await databaseRequest(config, `/rest/v1/vehicles?${filter}&select=id,service_records(id)&limit=1`, { method: 'GET', headers: readHeaders }, fetcher));
+  if (!found) throw { status: 404, code: 'vehicle_not_found' };
+  if (Array.isArray(found.service_records) && found.service_records.length) throw { status: 409, code: 'vehicle_has_records' };
+  const vehicle = firstRow(await databaseRequest(config, `/rest/v1/vehicles?${filter}`, { method: 'DELETE', headers: writeJson }, fetcher));
+  if (!vehicle) throw { status: 404, code: 'vehicle_not_found' };
+  return { ok: true, deleted: vehicle.id };
 }
 
 async function vehicleForAdmin(config, vehicleId, fetcher) {
@@ -548,14 +640,20 @@ async function miniAppAction(config, body, fetcher) {
   if (body.action === 'admin-dashboard') return adminDashboard(config, body, fetcher);
   if (body.action === 'admin-overview') return adminOverview(config, body, fetcher);
   if (body.action === 'admin-create-customer') return adminCreateCustomer(config, body, fetcher);
+  if (body.action === 'admin-update-customer') return adminUpdateCustomer(config, body, fetcher);
+  if (body.action === 'admin-delete-customer') return adminDeleteCustomer(config, body, fetcher);
   if (body.action === 'admin-vehicles') return adminVehicles(config, body, fetcher);
   if (body.action === 'admin-create-vehicle') return adminCreateVehicle(config, body, fetcher);
+  if (body.action === 'admin-update-vehicle') return adminUpdateVehicle(config, body, fetcher);
+  if (body.action === 'admin-delete-vehicle') return adminDeleteVehicle(config, body, fetcher);
   if (body.action === 'admin-service-records') return adminServiceRecords(config, body, fetcher);
   if (body.action === 'admin-create-service-record') return adminCreateServiceRecord(config, body, fetcher);
   if (body.action === 'admin-update-service-record') return adminUpdateServiceRecord(config, body, fetcher);
   if (body.action === 'admin-delete-service-record') return adminDeleteServiceRecord(config, body, fetcher);
   if (body.action === 'customer-vehicles') return customerVehicles(config, body, fetcher);
   if (body.action === 'customer-update-profile') return customerUpdateProfile(config, body, fetcher);
+  if (body.action === 'customer-update-vehicle') return customerUpdateVehicle(config, body, fetcher);
+  if (body.action === 'customer-delete-vehicle') return customerDeleteVehicle(config, body, fetcher);
   throw { status: 400, code: 'invalid_action' };
 }
 
@@ -586,14 +684,14 @@ export function createEdgeHandler({ env, fetcher = fetch }) {
         return send(200, await setup(config, await readJson(request, 4096), fetcher));
       }
       const body = await readJson(request, 65536);
-      if (['miniapp-session', 'admin-dashboard', 'admin-overview', 'admin-create-customer', 'admin-vehicles', 'admin-create-vehicle', 'admin-service-records', 'admin-create-service-record', 'admin-update-service-record', 'admin-delete-service-record', 'customer-vehicles', 'customer-update-profile'].includes(body?.action)) return send(200, await miniAppAction(config, body, fetcher));
+      if (['miniapp-session', 'admin-dashboard', 'admin-overview', 'admin-create-customer', 'admin-vehicles', 'admin-create-vehicle', 'admin-service-records', 'admin-create-service-record', 'admin-update-service-record', 'admin-delete-service-record', 'customer-vehicles', 'customer-update-profile', 'admin-update-customer', 'admin-delete-customer', 'admin-update-vehicle', 'admin-delete-vehicle', 'customer-update-vehicle', 'customer-delete-vehicle'].includes(body?.action)) return send(200, await miniAppAction(config, body, fetcher));
       const webhookSecret = await deriveWebhookSecret(config.token, config.webhookUrl);
       if (!(await matchesSecret(request.headers.get('x-telegram-bot-api-secret-token'), webhookSecret))) return send(401, { error: 'unauthorized' });
       if (!Number.isSafeInteger(body?.update_id) || body.update_id < 0) return send(400, { error: 'invalid_update' });
       if (body.message?.contact && typeof body.message.contact === 'object') return send(200, await linkContact(config, body, fetcher));
       return send(200, replyForUpdate(body, config) || { ok: true });
     } catch (error) {
-    const known = ['json_required', 'body_too_large', 'invalid_json', 'invalid_action', 'invalid_customer', 'customer_exists', 'customer_required', 'invalid_profile', 'invalid_vehicle', 'invalid_service_record', 'record_not_found', 'vehicle_not_found', 'admin_required', 'telegram_connection_failed', 'telegram_invalid_response', 'telegram_request_failed', 'bot_username_mismatch', 'invalid_init_data', 'telegram_identity_invalid', 'telegram_identity_expired', 'invalid_telegram_user', 'server_database_required', 'database_connection_failed', 'database_request_failed', 'database_invalid_response'];
+    const known = ['json_required', 'body_too_large', 'invalid_json', 'invalid_action', 'invalid_customer', 'customer_exists', 'customer_not_found', 'vehicle_has_records', 'customer_required', 'invalid_profile', 'invalid_vehicle', 'invalid_service_record', 'record_not_found', 'vehicle_not_found', 'admin_required', 'telegram_connection_failed', 'telegram_invalid_response', 'telegram_request_failed', 'bot_username_mismatch', 'invalid_init_data', 'telegram_identity_invalid', 'telegram_identity_expired', 'invalid_telegram_user', 'server_database_required', 'database_connection_failed', 'database_request_failed', 'database_invalid_response'];
       if (!known.includes(error?.code)) return send(500, { error: 'internal_error' });
       return send(error.status, { error: error.code, ...(error.stage ? { stage: error.stage } : {}) });
     }

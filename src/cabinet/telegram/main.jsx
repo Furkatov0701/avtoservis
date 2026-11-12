@@ -8,7 +8,7 @@ import { CabinetContext, useCabinet } from './context';
 import { BottomNav, Empty, Header, Icon, PrimaryButton } from './ui';
 import { initials } from './format';
 import { Home, Vehicles, Sections, ServiceDetail, Profile, Settings, Help, NotFound } from './pages';
-import { Customers, CustomerCreate, VehicleCreate, RecordForm } from './admin';
+import { Customers, CustomerForm, VehicleForm, RecordForm } from './admin';
 import { Register, ProfileEdit } from './customer';
 import './telegram.css';
 
@@ -122,12 +122,14 @@ function TelegramLayout() {
   useEffect(() => { window.scrollTo?.(0, 0); }, [location.pathname]);
 
   const selectCustomer = useCallback(customer => { setSelectedCustomer(customer); setSelectedVehicleId(null); }, []);
+  // After an edit or delete: forget the loaded vehicles so the pages reload them.
+  const resetAdminVehicles = useCallback(() => setAdminVehicles({ key: null, kind: 'idle', list: [] }), []);
   const value = useMemo(() => ({
     status, app, session, role, retrySdk: () => setAttempt(n => n + 1), retrySession: () => setSessionAttempt(n => n + 1), refreshSession, request, goBack,
-    customers, loadCustomers, setCustomers, selectedCustomer, selectCustomer, overview, loadOverview,
-    userVehicles, loadUserVehicles, adminVehicles, loadAdminVehicles, vehicles, selectedVehicle, selectVehicle: setSelectedVehicleId,
+    customers, loadCustomers, setCustomers, selectedCustomer, selectCustomer, replaceSelectedCustomer: setSelectedCustomer, overview, loadOverview,
+    userVehicles, loadUserVehicles, adminVehicles, loadAdminVehicles, resetAdminVehicles, vehicles, selectedVehicle, selectVehicle: setSelectedVehicleId,
     recordCache, loadRecords,
-  }), [status, app, session, role, refreshSession, request, goBack, customers, loadCustomers, setCustomers, selectedCustomer, selectCustomer, overview, loadOverview, userVehicles, loadUserVehicles, adminVehicles, loadAdminVehicles, vehicles, selectedVehicle, recordCache, loadRecords]);
+  }), [status, app, session, role, refreshSession, request, goBack, customers, loadCustomers, setCustomers, selectedCustomer, selectCustomer, overview, loadOverview, userVehicles, loadUserVehicles, adminVehicles, loadAdminVehicles, resetAdminVehicles, vehicles, selectedVehicle, recordCache, loadRecords]);
 
   return <CabinetContext.Provider value={value}><div className="tg-app"><main id="main-content" className="tg-main"><Outlet /></main></div></CabinetContext.Provider>;
 }
@@ -167,9 +169,11 @@ export function startTelegram() {
   const router = createMemoryRouter([{ element: <TelegramLayout />, children: [
     { path: '/', element: <Gate><Home /></Gate> },
     { path: '/mijozlar', element: <Gate admin><Customers /></Gate> },
-    { path: '/mijozlar/yangi', element: <Gate admin chrome={false}><CustomerCreate /></Gate> },
+    { path: '/mijozlar/yangi', element: <Gate admin chrome={false}><CustomerForm /></Gate> },
+    { path: '/mijozlar/:customerId/tahrir', element: <Gate admin chrome={false}><CustomerForm key="edit" /></Gate> },
     { path: '/mashinalar', element: <Gate><Vehicles /></Gate> },
-    { path: '/mashinalar/yangi', element: <Gate admin chrome={false}><VehicleCreate /></Gate> },
+    { path: '/mashinalar/yangi', element: <Gate admin chrome={false}><VehicleForm /></Gate> },
+    { path: '/mashinalar/:vehicleId/tahrir', element: <Gate chrome={false}><VehicleForm key="edit" /></Gate> },
     { path: '/bolimlar', element: <Gate><Sections /></Gate> },
     { path: '/bolimlar/:serviceId', element: <Gate><ServiceDetail /></Gate> },
     { path: '/bolimlar/:serviceId/yangi', element: <Gate admin chrome={false}><RecordForm /></Gate> },

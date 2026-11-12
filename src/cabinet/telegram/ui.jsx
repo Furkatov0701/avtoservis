@@ -60,10 +60,22 @@ export function ServiceRow({ service, status, nextDue, to, onClick, label }) {
 }
 
 // Dark vehicle card at the top of customer screens.
-export function VehicleHero({ vehicle }) {
+export function VehicleHero({ vehicle, editTo }) {
   const km = formatKm(latestOdometer(vehicle.service_records));
   const meta = [km, vehicle.production_year].filter(Boolean).join(' · ');
-  return <div className="tg-hero"><span className="tg-hero-ic"><Icon name="car" size={26} /></span><span className="tg-hero-txt"><strong>{vehicleName(vehicle)}</strong>{meta && <small>{meta}</small>}<PlateBadge plate={vehicle.plate} /></span></div>;
+  return <div className="tg-hero"><span className="tg-hero-ic"><Icon name="car" size={26} /></span><span className="tg-hero-txt"><strong>{vehicleName(vehicle)}</strong>{meta && <small>{meta}</small>}<PlateBadge plate={vehicle.plate} /></span>{editTo && <EditLink className="tg-hero-edit" to={editTo} label="Mashinani tahrirlash" />}</div>;
+}
+
+// Pencil button next to data that may have been typed wrong.
+export function EditLink({ to, label, className = '', state }) {
+  return <Link className={`tg-edit-ic ${className}`} to={to} state={state} aria-label={label}><Icon name="edit" size={16} /></Link>;
+}
+
+// "Delete" link that asks once more before doing anything irreversible.
+export function DeleteConfirm({ label, question, onConfirm, busy }) {
+  const [asking, setAsking] = useState(false);
+  if (!asking) return <button type="button" className="tg-link danger" onClick={() => setAsking(true)}>{label}</button>;
+  return <div className="tg-confirm" role="alert"><p>{question}</p><div><button type="button" className="tg-danger" onClick={onConfirm} disabled={busy}>Ha, o‘chirish</button><button type="button" className="tg-secondary" onClick={() => setAsking(false)} disabled={busy}>Yo‘q</button></div></div>;
 }
 
 export function PlateBadge({ plate }) {

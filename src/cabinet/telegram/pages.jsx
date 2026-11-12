@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { TireArt } from '../Icon';
 import { useCabinet } from './context';
-import { Empty, Failure, Icon, Pill, PlateBadge, SearchBar, ServiceRow, VehicleHero } from './ui';
+import { EditLink, Empty, Failure, Icon, Pill, PlateBadge, SearchBar, ServiceRow, VehicleHero } from './ui';
 import { dueStatus, ODOMETER_SERVICES, formatDayLong, formatDayShort, formatKm, formatPhone, formatRange, fullName, initials, recordsFor, serviceById, services, serviceStatuses, tireWheels, vehicleName, worstStatus } from './format';
 
 const normalize = value => (value || '').toLocaleLowerCase('uz').replace(/\s+/g, '');
@@ -29,7 +29,7 @@ function useVehiclesLoaded() {
 }
 
 function VehicleContext({ vehicle }) {
-  return <div className="tg-context"><Icon name="car" size={17} /><span>{vehicleName(vehicle)}</span><PlateBadge plate={vehicle.plate} /><Link to="/mashinalar">O‘zgartirish</Link></div>;
+  return <div className="tg-context"><Icon name="car" size={17} /><span>{vehicleName(vehicle)}</span><PlateBadge plate={vehicle.plate} /><Link to="/mashinalar" aria-label="Boshqa mashinani tanlash">Boshqasi</Link><EditLink to={`/mashinalar/${vehicle.id}/tahrir`} label="Mashinani tahrirlash" /></div>;
 }
 
 function ChooseVehicle() {
@@ -86,7 +86,7 @@ function CustomerHome() {
   const statuses = serviceStatuses(vehicle.service_records);
   const upcoming = statuses.filter(item => item.status.kind !== 'none').sort((a, b) => a.status.days - b.status.days).slice(0, 2);
   return <section className="tg-page"><h1 className="sr-only">Bosh sahifa</h1>
-    <VehicleHero vehicle={vehicle} />
+    <VehicleHero vehicle={vehicle} editTo={`/mashinalar/${vehicle.id}/tahrir`} />
     <OverdueAlert statuses={statuses} />
     <div className="tg-section"><h2>Yaqin xizmatlar</h2><Link to="/bolimlar" onClick={() => selectVehicle(vehicle.id)}>Barchasi ›</Link></div>
     {!upcoming.length ? <Empty title="Rejalashtirilgan xizmat yo‘q">Keyingi xizmat sanalari shu yerda ko‘rinadi.</Empty> : <div className="tg-rows">{upcoming.map(({ service, latest, status }) => <ServiceRow key={service.id} service={service} status={status} nextDue={latest?.next_due_on} to={`/bolimlar/${service.id}`} />)}</div>}
@@ -112,7 +112,7 @@ export function Vehicles() {
   const add = role !== 'admin' ? null : selectedCustomer ? <Link className="tg-add" to="/mashinalar/yangi" aria-label="Mashina qo‘shish"><Icon name="plus" size={22} /></Link> : <button type="button" className="tg-add" aria-label="Mashina qo‘shish" onClick={() => navigate('/mijozlar', { state: { notice: 'Mashina qo‘shish uchun mijozni tanlang va «Ko‘rish»ni bosing.' } })}><Icon name="plus" size={22} /></button>;
   return <section className="tg-page"><h1 className="sr-only">Mashinalar</h1>
     <SearchBar value={query} onChange={setQuery} placeholder="Mashina qidirish ....." label="Mashina qidirish" action={add} />
-    {role === 'admin' && selectedCustomer && <div className="tg-context"><Icon name="people" size={17} /><span>{fullName(selectedCustomer)}</span><button type="button" onClick={() => selectCustomer(null)}>Barcha mashinalar</button></div>}
+    {role === 'admin' && selectedCustomer && <div className="tg-context"><Icon name="people" size={17} /><span>{fullName(selectedCustomer)}</span><button type="button" onClick={() => selectCustomer(null)}>Barcha mashinalar</button><EditLink to={`/mijozlar/${selectedCustomer.id}/tahrir`} label="Mijozni tahrirlash" /></div>}
     {loaded.kind === 'loading' && !vehicles.length ? <Empty loading title="Mashinalar yuklanmoqda…" /> : loaded.kind === 'error' ? <Failure title="Mashinalarni yuklab bo‘lmadi" onRetry={loaded.retry} /> : !vehicles.length ? <Empty title="Hali mashina yo‘q">{role === 'admin' ? '«+» tugmasi orqali mashina qo‘shing.' : 'Servis administratori mashinangizni qo‘shgach, u shu yerda ko‘rinadi.'}</Empty> : !filtered.length ? <Empty title="Mashina topilmadi" /> : <div className="tg-grid">{filtered.map(vehicle => <button type="button" className="tg-tile" key={vehicle.id} onClick={() => { selectVehicle(vehicle.id); navigate('/bolimlar'); }}><span className="tg-duo big"><Icon name="car" size={26} /></span><strong>{vehicleName(vehicle)}</strong><PlateBadge plate={vehicle.plate} />{role === 'admin' && !selectedCustomer && vehicle.customers && <small>{fullName(vehicle.customers)}</small>}{vehiclePill(vehicle.service_records)}</button>)}</div>}
   </section>;
 }
@@ -124,7 +124,7 @@ export function Sections() {
   if (!selectedVehicle) return <section className="tg-page"><h1 className="sr-only">Bo‘limlar</h1><ChooseVehicle /></section>;
   const statuses = serviceStatuses(records.list).filter(item => normalize(item.service.name).includes(normalize(query)));
   return <section className="tg-page"><h1 className="sr-only">Bo‘limlar</h1>
-    {role === 'admin' ? <><SearchBar value={query} onChange={setQuery} placeholder="Bo‘lim qidirish ....." label="Bo‘lim qidirish" /><VehicleContext vehicle={selectedVehicle} /></> : <VehicleHero vehicle={selectedVehicle} />}
+    {role === 'admin' ? <><SearchBar value={query} onChange={setQuery} placeholder="Bo‘lim qidirish ....." label="Bo‘lim qidirish" /><VehicleContext vehicle={selectedVehicle} /></> : <VehicleHero vehicle={selectedVehicle} editTo={`/mashinalar/${selectedVehicle.id}/tahrir`} />}
     {records.kind === 'error' ? <Failure title="Xizmatlarni yuklab bo‘lmadi" onRetry={() => loadRecords(selectedVehicle.id)} /> : !statuses.length ? <Empty title="Bo‘lim topilmadi" /> : <div className="tg-rows">{statuses.map(({ service, latest, status }) => <ServiceRow key={service.id} service={service} status={status} nextDue={latest?.next_due_on} to={`/bolimlar/${service.id}`} />)}</div>}
   </section>;
 }
@@ -169,7 +169,7 @@ export function Profile() {
   return <section className="tg-page"><h1 className="sr-only">Profil</h1><article className="tg-profile">
     <div className="tg-profile-top"><span className="tg-avatar big" aria-hidden="true">{initials(person)}</span><div><h2>{(name || 'Foydalanuvchi').toUpperCase()}</h2><small>● {role === 'admin' ? 'Administrator' : 'Telegram orqali tasdiqlangan'}</small></div></div>
     {role !== 'admin' && <>
-      {loaded.kind === 'loading' && !vehicles.length ? <p className="tg-profile-row muted"><Icon name="car" size={19} /><span>Yuklanmoqda…</span></p> : vehicles.map(vehicle => <p className="tg-profile-row" key={vehicle.id}><Icon name="car" size={19} /><span>{vehicleName(vehicle)}</span><PlateBadge plate={vehicle.plate} /></p>)}
+      {loaded.kind === 'loading' && !vehicles.length ? <p className="tg-profile-row muted"><Icon name="car" size={19} /><span>Yuklanmoqda…</span></p> : vehicles.map(vehicle => <p className="tg-profile-row" key={vehicle.id}><Icon name="car" size={19} /><span>{vehicleName(vehicle)}</span><PlateBadge plate={vehicle.plate} /><EditLink to={`/mashinalar/${vehicle.id}/tahrir`} label={`${vehicleName(vehicle)}: tahrirlash`} /></p>)}
       {customer?.phone && <p className="tg-profile-row"><Icon name="phone" size={19} /><span>{formatPhone(customer.phone)}</span></p>}
       <Link className="tg-edit" to="/profil/tahrir"><Icon name="edit" size={18} /> TAHRIRLASH</Link>
     </>}
