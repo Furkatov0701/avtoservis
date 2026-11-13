@@ -67,8 +67,8 @@ export function VehicleHero({ vehicle, editTo }) {
 }
 
 // Pencil button next to data that may have been typed wrong.
-export function EditLink({ to, label, className = '', state }) {
-  return <Link className={`tg-edit-ic ${className}`} to={to} state={state} aria-label={label}><Icon name="edit" size={16} /></Link>;
+export function EditLink({ to, label, className = '', state, size = 16 }) {
+  return <Link className={`tg-edit-ic ${className}`} to={to} state={state} aria-label={label}><Icon name="edit" size={size} /></Link>;
 }
 
 // "Delete" link that asks once more before doing anything irreversible.

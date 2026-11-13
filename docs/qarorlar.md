@@ -2,9 +2,11 @@
 
 ## Ma’lumotlarni tahrirlash va o‘chirish — 2026-11-12
 
-- Xato kiritilishi mumkin bo‘lgan joylarda ✏️ belgisi bor: mashina kartasi
-  (Bosh sahifa, Bo‘limlar), profil sahifasidagi har bir mashina, admin uchun
-  mijozlar jadvalidagi har bir qator va tanlangan mijoz qatori.
+- Xato kiritilishi mumkin bo‘lgan joylarda ✏️ belgisi bor: mijozning mashina
+  kartasi (Bosh sahifa, Bo‘limlar) va profildagi har bir mashina; admin uchun
+  Bo‘limlarda qidiruv yonida, xizmat sahifasida xizmat tanlagich yonida
+  (mashina qatorida emas — u yerda joy tor), Mashinalardagi tanlangan mijoz
+  qatorida. Mijozlar jadvalida ✏️ hozircha yo‘q (2026-11-14 qarori).
 - Tahrirlash sahifasida «…ni o‘chirish» tugmasi bor; har o‘chirish qayta
   so‘raladi («Ha, o‘chirish» / «Yo‘q»).
 - Mijoz faqat o‘z mashinasini tahrirlaydi (server `customer_id` bo‘yicha

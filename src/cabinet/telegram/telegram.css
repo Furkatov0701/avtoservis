@@ -282,9 +282,9 @@ html:has(.tg-app) { background: var(--sand-bg); }
 @media (max-width: 359px) { .tg-context > svg:first-child { display: none; } }
 .tg-context .tg-edit-ic { margin-left: 2px; min-height: 0; width: 30px; height: 30px; padding: 0; background: var(--t100); color: var(--t800); text-decoration: none; }
 .tg-profile-row .tg-edit-ic { margin-left: auto; }
-.tg-cell-action { width: 116px; }
-.tg-cell-action > span { display: inline-flex; align-items: center; gap: 6px; }
-.tg-cell-action .tg-edit-ic { width: 28px; height: 28px; border-radius: 8px; }
+.tg-edit-big { width: 46px; height: 46px; border: 1px solid var(--sand-line); border-radius: 13px; background: var(--t100); }
+.tg-search-row .tg-select { flex: 1; min-width: 0; }
+.tg-search-row .tg-select + .tg-edit-big { width: 48px; height: 48px; }
 .tg-form-danger { display: grid; gap: 8px; padding-top: 6px; border-top: 1px solid var(--sand-line); }
 .tg-hist-edit { margin-left: 4px; }
 .tg-focus-wheel input { border-color: var(--t600); box-shadow: 0 0 0 3px rgb(47 111 120 / .15); }

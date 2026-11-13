@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { normalizePhone } from '../validation';
 import { useCabinet } from './context';
-import { AddButton, capitalizeSentence, capitalizeWords, Combobox, DeleteConfirm, EditLink, Empty, Failure, FormPage, Notice, PlateInput, PrimaryButton, SearchBar, TextField } from './ui';
+import { AddButton, capitalizeSentence, capitalizeWords, Combobox, DeleteConfirm, Empty, Failure, FormPage, Notice, PlateInput, PrimaryButton, SearchBar, TextField } from './ui';
 import { makeSuggestions, modelSuggestions } from './cars';
 import { addDays, addMonths, DateField } from './datepicker';
 import { formatPhone, fullName, initials, maskPhoneInput, MAX_KM, MIN_PRODUCTION_YEAR, maxProductionYear, ODOMETER_SERVICES, PLATE_BODY, recordsFor, sentenceCase, serviceById, splitPlate, tireWheels, titleCase, vehicleName } from './format';
@@ -42,7 +42,7 @@ export function Customers() {
       : <><table className="tg-table" aria-label="Mijozlar ro‘yxati"><tbody>{Array.from({ length: rows }, (_, index) => {
         const customer = shown[index];
         return customer
-          ? <tr key={customer.id}><td className="tg-num">{index + 1}</td><td className="tg-name"><span className="tg-person"><span className="tg-mini-ava" aria-hidden="true">{initials(customer)}<i className={customer.linked ? 'on' : ''} /></span><span><strong>{fullName(customer)}</strong><small>{customer.linked ? formatPhone(customer.phone) : 'Botga ulanmagan'}</small></span></span></td><td className="tg-cell-action"><span><EditLink to={`/mijozlar/${customer.id}/tahrir`} label={`${fullName(customer)}: tahrirlash`} /><button type="button" className="tg-chip" onClick={() => open(customer)} aria-label={`${fullName(customer)}: ko‘rish`}>Ko‘rish</button></span></td></tr>
+          ? <tr key={customer.id}><td className="tg-num">{index + 1}</td><td className="tg-name"><span className="tg-person"><span className="tg-mini-ava" aria-hidden="true">{initials(customer)}<i className={customer.linked ? 'on' : ''} /></span><span><strong>{fullName(customer)}</strong><small>{customer.linked ? formatPhone(customer.phone) : 'Botga ulanmagan'}</small></span></span></td><td className="tg-cell-action"><button type="button" className="tg-chip" onClick={() => open(customer)} aria-label={`${fullName(customer)}: ko‘rish`}>Ko‘rish</button></td></tr>
           : <tr key={`empty-${index}`} aria-hidden="true" className="empty"><td className="tg-num">{index + 1}</td><td className="tg-name" /><td className="tg-cell-action" /></tr>;
       })}</tbody></table>{list.length > limit && <button type="button" className="tg-more" onClick={() => setLimit(value => value + PAGE)}>Yana....</button>}</>}
   </section>;

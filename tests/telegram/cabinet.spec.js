@@ -411,7 +411,10 @@ test('admin: corrects or deletes a customer and a car', async ({ page }) => {
   await page.getByRole('link', { name: 'Mijozlar' }).click();
   const fits = async () => { for (const width of [320, 390]) { await page.setViewportSize({ width, height: 800 }); expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true); } };
   await fits();
-  await page.getByRole('link', { name: 'Paloncha Palonchayev: tahrirlash' }).click();
+  // The table has no pencil for now; the customer is edited from the Mashinalar context line.
+  await expect(page.locator('.tg-table .tg-edit-ic')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Paloncha Palonchayev: ko‘rish' }).click();
+  await page.getByRole('link', { name: 'Mijozni tahrirlash' }).click();
   await fits();
   await expect(page.getByRole('heading', { name: 'Mijozni tahrirlash' })).toBeVisible();
   await expect(page.getByLabel('Telefon raqami *')).toHaveValue('+998 (90) 000-00-00');
@@ -423,11 +426,14 @@ test('admin: corrects or deletes a customer and a car', async ({ page }) => {
   await expect(page.getByLabel('Ism *')).toHaveValue('Aziz');
   await page.screenshot({ path: `${SHOTS}/admin-mijoz-tahrirlash.png` });
   await page.getByRole('button', { name: 'Saqlash' }).click();
+  await expect(page.locator('.tg-context')).toContainText('Aziz Palonchayev');
+  await page.getByRole('link', { name: 'Mijozlar' }).click();
   await expect(page.locator('.tg-table')).toContainText('Aziz Palonchayev');
   await expect(page.locator('.tg-table')).toContainText('+998 (93) 555-44-33');
 
   // Delete the mistaken customer.
-  await page.getByRole('link', { name: 'Vali Xato: tahrirlash' }).click();
+  await page.getByRole('button', { name: 'Vali Xato: ko‘rish' }).click();
+  await page.getByRole('link', { name: 'Mijozni tahrirlash' }).click();
   await page.getByRole('button', { name: 'Mijozni o‘chirish' }).click();
   await page.getByRole('button', { name: 'Ha, o‘chirish' }).click();
   await expect(page.getByRole('table', { name: 'Mijozlar ro‘yxati' })).not.toContainText('Vali Xato');
@@ -437,6 +443,15 @@ test('admin: corrects or deletes a customer and a car', async ({ page }) => {
   await page.getByRole('button', { name: 'Aziz Palonchayev: ko‘rish' }).click();
   await expect(page.getByRole('link', { name: 'Mijozni tahrirlash' })).toBeVisible();
   await page.getByRole('button', { name: /MALIBU 2/ }).click();
+  await expect(page.locator('.tg-context .tg-edit-ic')).toHaveCount(0);
+  await expect(page.locator('.tg-search-row').getByRole('link', { name: 'Mashinani tahrirlash' })).toBeVisible();
+  await page.screenshot({ path: `${SHOTS}/admin-bolimlar-tahrir.png` });
+  await page.getByRole('link', { name: 'Balonlar: 12 kun qoldi' }).click();
+  await expect(page.locator('.tg-wheel')).toHaveCount(4);
+  await expect(page.locator('.tg-search-row').getByLabel('Xizmat turini tanlang')).toBeVisible();
+  await expect(page.locator('.tg-search-row').getByRole('link', { name: 'Mashinani tahrirlash' })).toBeVisible();
+  await page.screenshot({ path: `${SHOTS}/admin-balonlar-tahrir.png` });
+  await fits();
   await page.getByRole('link', { name: 'Mashinani tahrirlash' }).click();
   await page.getByLabel('Modeli *').fill('malibu');
   // The sample plate predates the plate rule, so the form asks for a valid one.

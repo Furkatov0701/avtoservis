@@ -29,7 +29,12 @@ function useVehiclesLoaded() {
 }
 
 function VehicleContext({ vehicle }) {
-  return <div className="tg-context"><Icon name="car" size={17} /><span>{vehicleName(vehicle)}</span><PlateBadge plate={vehicle.plate} /><Link to="/mashinalar" aria-label="Boshqa mashinani tanlash">Boshqasi</Link><EditLink to={`/mashinalar/${vehicle.id}/tahrir`} label="Mashinani tahrirlash" /></div>;
+  return <div className="tg-context"><Icon name="car" size={17} /><span>{vehicleName(vehicle)}</span><PlateBadge plate={vehicle.plate} /><Link to="/mashinalar" aria-label="Boshqa mashinani tanlash">Boshqasi</Link></div>;
+}
+
+// Big pencil button next to the search bar or the service picker.
+function VehicleEdit({ vehicle }) {
+  return <EditLink className="tg-edit-big" size={20} to={`/mashinalar/${vehicle.id}/tahrir`} label="Mashinani tahrirlash" />;
 }
 
 function ChooseVehicle() {
@@ -124,7 +129,7 @@ export function Sections() {
   if (!selectedVehicle) return <section className="tg-page"><h1 className="sr-only">Bo‘limlar</h1><ChooseVehicle /></section>;
   const statuses = serviceStatuses(records.list).filter(item => normalize(item.service.name).includes(normalize(query)));
   return <section className="tg-page"><h1 className="sr-only">Bo‘limlar</h1>
-    {role === 'admin' ? <><SearchBar value={query} onChange={setQuery} placeholder="Bo‘lim qidirish ....." label="Bo‘lim qidirish" /><VehicleContext vehicle={selectedVehicle} /></> : <VehicleHero vehicle={selectedVehicle} editTo={`/mashinalar/${selectedVehicle.id}/tahrir`} />}
+    {role === 'admin' ? <><SearchBar value={query} onChange={setQuery} placeholder="Bo‘lim qidirish ....." label="Bo‘lim qidirish" action={<VehicleEdit vehicle={selectedVehicle} />} /><VehicleContext vehicle={selectedVehicle} /></> : <VehicleHero vehicle={selectedVehicle} editTo={`/mashinalar/${selectedVehicle.id}/tahrir`} />}
     {records.kind === 'error' ? <Failure title="Xizmatlarni yuklab bo‘lmadi" onRetry={() => loadRecords(selectedVehicle.id)} /> : !statuses.length ? <Empty title="Bo‘lim topilmadi" /> : <div className="tg-rows">{statuses.map(({ service, latest, status }) => <ServiceRow key={service.id} service={service} status={status} nextDue={latest?.next_due_on} to={`/bolimlar/${service.id}`} />)}</div>}
   </section>;
 }
@@ -142,7 +147,7 @@ export function ServiceDetail() {
   const wheels = service.id === 'tires' && latest?.tire_positions && typeof latest.tire_positions === 'object' ? latest.tire_positions : null;
   const status = dueStatus(latest?.next_due_on, latest?.performed_on);
   return <section className="tg-page"><h1 className="sr-only">{service.name}</h1>
-    <label className="tg-select"><span className="sr-only">Xizmat turini tanlang</span><select value={service.id} onChange={event => navigate(`/bolimlar/${event.target.value}`, { replace: true })}>{services.map(item => <option key={item.id} value={item.id}>{item.name.toUpperCase()}</option>)}</select><Icon name="down" size={20} /></label>
+    <div className="tg-search-row"><label className="tg-select"><span className="sr-only">Xizmat turini tanlang</span><select value={service.id} onChange={event => navigate(`/bolimlar/${event.target.value}`, { replace: true })}>{services.map(item => <option key={item.id} value={item.id}>{item.name.toUpperCase()}</option>)}</select><Icon name="down" size={20} /></label><VehicleEdit vehicle={selectedVehicle} /></div>
     <VehicleContext vehicle={selectedVehicle} />
     {records.kind === 'loading' && !list.length ? <Empty loading title="Xizmatlar yuklanmoqda…" /> : records.kind === 'error' ? <Failure title="Xizmatlarni yuklab bo‘lmadi" onRetry={() => loadRecords(selectedVehicle.id)} /> : !list.length ? <Empty title="Hali ma’lumot yo‘q">{role === 'admin' ? '«Ma’lumot kiritish» tugmasi orqali birinchi ma’lumotni kiriting.' : 'Servisda xizmat ko‘rsatilgach, sanalar shu yerda ko‘rinadi.'}</Empty>
       : wheels ? <>
