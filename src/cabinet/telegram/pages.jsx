@@ -153,13 +153,27 @@ export function ServiceDetail() {
       : wheels ? <>
         <div className="tg-car" aria-label="Balonlarning keyingi almashtirish sanalari"><span className="tg-car-body" aria-hidden="true" />
           {tireWheels.map(wheel => { const wheelStatus = dueStatus(wheels[wheel.id], latest.performed_on); return <span key={wheel.id} className={`tg-tyre ${wheel.id} ${wheelStatus.kind}`} aria-hidden="true" />; })}
-          {tireWheels.map(wheel => { const wheelStatus = dueStatus(wheels[wheel.id], latest.performed_on); return <div key={wheel.id} className={`tg-wheel ${wheel.id}`}><small>{wheel.name.toUpperCase()}</small><strong>{formatDayLong(wheels[wheel.id]) || '—'}</strong><Pill kind={wheelStatus.kind}>{wheelStatus.pill}</Pill>{role === 'admin' && <Link className="tg-wheel-edit" to={`/bolimlar/tires/${latest.id}/tahrir`} state={{ wheel: wheel.id }} aria-label={`${wheel.name}: tahrirlash`}><Icon name="edit" size={16} /></Link>}</div>; })}
+          {tireWheels.map(wheel => {
+            const wheelStatus = dueStatus(wheels[wheel.id], latest.performed_on);
+            const content = <><small>{wheel.name.toUpperCase()}</small><strong>{formatDayLong(wheels[wheel.id]) || '—'}</strong><Pill kind={wheelStatus.kind}>{wheelStatus.pill}</Pill></>;
+            // Admins tap the whole card: the edit form opens with this wheel's date picker.
+            return role === 'admin'
+              ? <Link key={wheel.id} className={`tg-wheel tg-tap ${wheel.id}`} to={`/bolimlar/tires/${latest.id}/tahrir`} state={{ wheel: wheel.id }} aria-label={`${wheel.name}: tahrirlash`}>{content}<Icon name="right" size={18} className="tg-tap-chev" /></Link>
+              : <div key={wheel.id} className={`tg-wheel ${wheel.id}`}>{content}</div>;
+          })}
         </div>
+        {role === 'admin' && <p className="tg-tap-hint">Tahrirlash uchun balon yoki tarix qatorini bosing</p>}
         <div className="tg-row"><span className="tg-duo"><Icon name="clock" size={22} /></span><span className="tg-row-main"><span className="tg-row-top"><strong>OXIRGI ALMASHTIRISH</strong></span><span className="tg-row-sub"><span>{formatDayShort(latest.performed_on)}{latest.odometer_km ? ` · ${formatKm(latest.odometer_km)}` : ''}</span></span></span></div>
       </> : <>
         <div className="tg-next"><small>KEYINGI ALMASHTIRISH</small><strong className={status.kind}>{latest.next_due_on ? formatDayLong(latest.next_due_on) : 'Belgilanmagan'}</strong><span className="tg-bar" aria-hidden="true"><i className={status.kind} style={{ width: `${status.progress}%` }} /></span><span className="tg-row-sub"><span>{formatDayShort(latest.performed_on)} dan</span><b className={status.kind}>{status.note}</b></span></div>
       </>}
-    {list.length > 0 && <><h2 className="tg-section">Tarix</h2><div className="tg-history">{list.map(record => <div className="tg-hist" key={record.id}><Icon name="calendar" size={18} /><strong>{formatRange(record.performed_on, record.next_due_on)}</strong>{ODOMETER_SERVICES.has(service.id) && <span>{formatKm(record.odometer_km)}</span>}{role === 'admin' && <Link className="tg-hist-edit" to={`/bolimlar/${service.id}/${record.id}/tahrir`} aria-label={`${formatRange(record.performed_on, record.next_due_on)}: tahrirlash`}><Icon name="edit" size={16} /></Link>}</div>)}</div></>}
+    {list.length > 0 && <><h2 className="tg-section">Tarix</h2><div className="tg-history">{list.map(record => {
+      const range = formatRange(record.performed_on, record.next_due_on);
+      const content = <><Icon name="calendar" size={18} /><strong>{range}</strong>{ODOMETER_SERVICES.has(service.id) && <span>{formatKm(record.odometer_km)}</span>}</>;
+      return role === 'admin'
+        ? <Link className="tg-hist tg-tap" key={record.id} to={`/bolimlar/${service.id}/${record.id}/tahrir`} aria-label={`${range}: tahrirlash`}>{content}<Icon name="right" size={18} className="tg-tap-chev" /></Link>
+        : <div className="tg-hist" key={record.id}>{content}</div>;
+    })}</div></>}
     {role === 'admin' && <Link className="tg-primary tg-bottom-action" to={`/bolimlar/${service.id}/yangi`}><Icon name="plus" size={18} /> Ma’lumot kiritish</Link>}
   </section>;
 }

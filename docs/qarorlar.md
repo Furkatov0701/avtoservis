@@ -7,6 +7,9 @@
   Bo‘limlarda qidiruv yonida, xizmat sahifasida xizmat tanlagich yonida
   (mashina qatorida emas — u yerda joy tor), Mashinalardagi tanlangan mijoz
   qatorida. Mijozlar jadvalida ✏️ hozircha yo‘q (2026-11-14 qarori).
+- Balon kartalari va tarix qatorlarida alohida ✏️ yo‘q (A varianti): admin
+  kartani yoki qatorni bosadi, `›` belgisi va «Tahrirlash uchun balon yoki tarix
+  qatorini bosing» izohi buni ko‘rsatadi. Sahifada bitta ✏️ — mashina uchun.
 - Tahrirlash sahifasida «…ni o‘chirish» tugmasi bor; har o‘chirish qayta
   so‘raladi («Ha, o‘chirish» / «Yo‘q»).
 - Mijoz faqat o‘z mashinasini tahrirlaydi (server `customer_id` bo‘yicha

@@ -238,6 +238,10 @@ test('admin: home, customers table, adding a customer, a car and a tire record',
   await expect(page.locator('.tg-wheel')).toHaveCount(4);
   await expect(page.locator('.tg-tyre.soon')).toHaveCount(2);
   await page.screenshot({ path: `${SHOTS}/admin-balonlar.png` });
+  // One pencil (the car); wheel cards and history rows are tapped directly.
+  await expect(page.locator('.tg-page .tg-edit-ic')).toHaveCount(1);
+  await expect(page.getByText('Tahrirlash uchun balon yoki tarix qatorini bosing')).toBeVisible();
+  await expect(page.locator('a.tg-wheel')).toHaveCount(4);
   await page.getByRole('link', { name: 'Ma’lumot kiritish' }).click();
   await expect(page.getByLabel('Kilometr')).toBeVisible();
   // Dates are shown in words; the performed date defaults to today.
@@ -289,7 +293,7 @@ test('admin: home, customers table, adding a customer, a car and a tire record',
   const tintRows = page.locator('.tg-hist');
   await expect(tintRows).toHaveCount(1);
   await expect(tintRows.first()).not.toContainText('km');
-  await page.locator('.tg-hist-edit').first().click();
+  await page.locator('a.tg-hist').first().click();
   await page.getByRole('button', { name: 'Yozuvni o‘chirish' }).click();
   await page.getByRole('button', { name: 'Ha, o‘chirish' }).click();
   await expect(page.getByText('Hali ma’lumot yo‘q')).toBeVisible();
@@ -338,7 +342,7 @@ test('customer: cars, sections, service dates, tires, profile and editing', asyn
   await expect(page.locator('.tg-wheel.rear_left')).toContainText('119 kun');
   await page.screenshot({ path: `${SHOTS}/12-user-balonlar.png` });
   await expect(page.getByRole('link', { name: 'Ma’lumot kiritish' })).toHaveCount(0);
-  await expect(page.locator('.tg-wheel-edit, .tg-hist-edit')).toHaveCount(0);
+  await expect(page.locator('a.tg-wheel, a.tg-hist, .tg-tap-hint')).toHaveCount(0);
 
   // Profile card: name, car with plate, phone, edit and exit.
   await page.getByRole('link', { name: 'Profil' }).first().click();

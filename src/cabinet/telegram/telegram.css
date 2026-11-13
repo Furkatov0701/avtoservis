@@ -271,9 +271,12 @@ html:has(.tg-app) { background: var(--sand-bg); }
 .tg-plate-uz b { font: 800 11px Arial, sans-serif; color: var(--t800); }
 
 /* Edit controls */
-.tg-wheel { padding-right: 38px; }
-.tg-wheel-edit, .tg-hist-edit { display: grid; place-items: center; width: 32px; height: 32px; flex-shrink: 0; border-radius: 9px; background: var(--t100); color: var(--t800); text-decoration: none; }
-.tg-wheel-edit { position: absolute; top: 7px; right: 7px; }
+.tg-tap { color: inherit; text-decoration: none; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.tg-tap:active { background: var(--t100); }
+.tg-wheel.tg-tap { padding-right: 26px; }
+.tg-wheel .tg-tap-chev { position: absolute; top: 9px; right: 7px; color: var(--t600); }
+.tg-hist .tg-tap-chev { flex-shrink: 0; margin-right: -4px; color: var(--t600); }
+.tg-tap-hint { margin: -6px 2px 0; color: var(--t700); font-size: 12px; font-weight: 600; text-align: center; }
 .tg-edit-ic { display: grid; place-items: center; width: 32px; height: 32px; flex-shrink: 0; border-radius: 9px; background: var(--t100); color: var(--t800); text-decoration: none; }
 .tg-hero { position: relative; }
 .tg-hero-txt { padding-right: 34px; }
@@ -286,7 +289,6 @@ html:has(.tg-app) { background: var(--sand-bg); }
 .tg-search-row .tg-select { flex: 1; min-width: 0; }
 .tg-search-row .tg-select + .tg-edit-big { width: 48px; height: 48px; }
 .tg-form-danger { display: grid; gap: 8px; padding-top: 6px; border-top: 1px solid var(--sand-line); }
-.tg-hist-edit { margin-left: 4px; }
 .tg-focus-wheel input { border-color: var(--t600); box-shadow: 0 0 0 3px rgb(47 111 120 / .15); }
 .tg-link.danger { color: var(--late-tx); }
 .tg-confirm { display: grid; gap: 10px; padding: 13px; border-radius: 13px; background: var(--late-bg); color: var(--late-tx); font-size: 13px; font-weight: 600; }
