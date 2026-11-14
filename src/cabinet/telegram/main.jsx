@@ -70,7 +70,7 @@ function TelegramLayout() {
     let active = true;
     if (status !== 'inside' || !initData) return undefined;
     setSession({ state: 'loading', data: null });
-    loadTelegramSession(initData).then(data => { if (active) setSession({ state: 'ready', data }); }, () => { if (active) setSession({ state: 'error', data: null }); });
+    loadTelegramSession(initData).then(data => { if (active) setSession({ state: 'ready', data }); }, error => { if (active) setSession({ state: 'error', data: null, code: error?.code || 'network' }); });
     return () => { active = false; };
   }, [status, initData, sessionAttempt]);
 
@@ -140,11 +140,23 @@ function Welcome({ children }) {
 }
 
 function SessionStates() {
-  const { status, session, retrySdk, retrySession } = useCabinet();
+  const { status, session, retrySdk, retrySession, app } = useCabinet();
   if (status === 'loading') return <Welcome><Empty loading title="Ilova ochilmoqda…" /></Welcome>;
   if (status === 'error') return <Welcome><div className="tg-empty error" role="alert"><h2>Telegram bilan bog‘lanib bo‘lmadi</h2><p>Internet aloqasini tekshirib, qayta urinib ko‘ring.</p><PrimaryButton type="button" onClick={retrySdk}>Qayta urinish</PrimaryButton></div></Welcome>;
   if (status === 'outside') return <Welcome><div className="tg-empty"><h2>Telegram orqali oching</h2><p>Servis botidagi «Kabinetni ochish» tugmasidan foydalaning.</p>{configuredBotLink && <a className="tg-primary" href={configuredBotLink} rel="noopener noreferrer">Telegram botni ochish</a>}</div></Welcome>;
-  if (session.state === 'error') return <Welcome><div className="tg-empty error" role="alert"><h2>Profilni ulab bo‘lmadi</h2><p>Aloqani tekshirib, yana urinib ko‘ring.</p><button type="button" className="tg-secondary" onClick={retrySession}>Qayta urinish</button></div></Welcome>;
+  if (session.state === 'error') {
+    // Telegram signs the launch data once per opening and the server accepts it for 24 hours.
+    // A window left open (or reloaded) keeps the old data, so retrying cannot help: reopening does.
+    const reopen = ['telegram_identity_expired', 'telegram_identity_invalid', 'invalid_init_data', 'invalid_telegram_user'].includes(session.code);
+    const text = session.code === 'telegram_identity_expired' ? 'Kirish muddati tugagan. Ilovani yoping va botdagi «Kabinetni ochish» tugmasi orqali qayta oching.'
+      : reopen ? 'Telegram ma’lumotlari tasdiqlanmadi. Ilovani yoping va botdagi «Kabinetni ochish» tugmasi orqali qayta oching.'
+      : session.code === 'network' || session.code === 'request_failed' ? 'Internet aloqasini tekshirib, yana urinib ko‘ring.'
+      : 'Server vaqtincha javob bermadi. Birozdan so‘ng yana urinib ko‘ring.';
+    return <Welcome><div className="tg-empty error" role="alert"><h2>Profilni ulab bo‘lmadi</h2><p>{text}</p>
+      {reopen && app?.close ? <button type="button" className="tg-primary" onClick={() => app.close()}>Ilovani yopish</button> : null}
+      <button type="button" className="tg-secondary" onClick={retrySession}>Qayta urinish</button>
+      <small className="tg-error-code">Xato kodi: {session.code}</small></div></Welcome>;
+  }
   return <Welcome><Empty loading title="Profil tekshirilmoqda…">Telegram hisobingiz xavfsiz tekshirilmoqda.</Empty></Welcome>;
 }
 

@@ -7,7 +7,7 @@ async function sdk(page, inside = true) {
       initDataUnsafe: { user: { id: 123, first_name: 'ForgedAdmin', role: 'admin' } },
       viewportStableHeight: 760, safeAreaInset: { top: 20, bottom: 10 }, contentSafeAreaInset: { top: 40 },
       isVersionAtLeast: () => true,
-      ready: () => sdkCalls.push('ready'), expand: () => sdkCalls.push('expand'), setHeaderColor() {}, setBackgroundColor() {},
+      ready: () => sdkCalls.push('ready'), expand: () => sdkCalls.push('expand'), close: () => { window.closeCalls = (window.closeCalls || 0) + 1; }, setHeaderColor() {}, setBackgroundColor() {},
       onEvent: (name, fn) => { telegramEvents[name] = fn; }, offEvent: name => { delete telegramEvents[name]; },
       BackButton: { show: () => { window.backVisible = true; }, hide: () => { window.backVisible = false; }, onClick: fn => backCallbacks.add(fn), offClick: fn => backCallbacks.delete(fn) }
     }};` }));
@@ -27,6 +27,11 @@ test('Telegram viewport and back button work; unverified initData never unlocks 
   await page.route('**/functions/v1/telegram-bot', route => route.fulfill({ status: 401, contentType: 'application/json', body: '{"error":"telegram_identity_invalid"}' }));
   await sdk(page); await page.goto('/app/');
   await expect(page.getByRole('heading', { name: 'Profilni ulab bo‘lmadi' })).toBeVisible();
+  // A rejected Telegram identity cannot be fixed by retrying: the screen says to reopen and shows the code.
+  await expect(page.getByText('Xato kodi: telegram_identity_invalid')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Ilovani yopish' })).toBeVisible();
+  await page.getByRole('button', { name: 'Ilovani yopish' }).click();
+  expect(await page.evaluate(() => closeCalls)).toBe(1);
   await expect(page.locator('body')).not.toContainText('ForgedAdmin');
   expect(await page.evaluate(() => sdkCalls)).toEqual(['ready', 'expand']);
   expect(await page.evaluate(() => document.documentElement.style.getPropertyValue('--avto-tg-height'))).toBe('760px');
